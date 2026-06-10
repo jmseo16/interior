@@ -193,7 +193,15 @@
         <button class="small danger" id="fImgClearBtn" style="display:none">✕</button>
         <input type="file" id="fImgFile" accept="image/*" style="display:none">
       </div>
-      <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
+      <div class="row"><label>3D</label>
+        <select id="fModel">
+          <option value="">기본 박스</option>
+          <option value="wardrobe">옷장 (도어+우드프레임)</option>
+          <option value="bed">침대 (매트리스+헤드보드)</option>
+          <option value="sofa">소파 (쿠션+팔걸이)</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">3D 모델 선택 시 사진보다 우선 적용됩니다. 사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
       <div class="row">
         <button class="primary" id="fSaveBtn">추가</button>
         <button id="fCancelBtn" style="display:none">취소</button>
@@ -305,12 +313,13 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 function defaultState() {
   let id = 1;
-  const F = (name, w, d, h, color) =>
-    ({ id: 'f' + id++, name, w, d, h, color, x: 0, y: 0, rot: 0, placed: false });
+  const F = (name, w, d, h, color, model) =>
+    ({ id: 'f' + id++, name, w, d, h, color, ...(model ? { model } : {}),
+       x: 0, y: 0, rot: 0, placed: false });
   // 실측 평면도 (발코니 확장 반영, 단위 cm). zone은 배치 불가 참고용 공간.
   return {
     version: STATE_VERSION,
@@ -329,12 +338,12 @@ function defaultState() {
       { id: 'z7', name: '안방 발코니', type: 'zone', x: 775,  y: 959, w: 315, h: 200 },
     ],
     furniture: [
-      F('퀸침대', 160, 200, 45, '#7fb3ff'),
-      F('옷장',   200, 60, 220, '#c39bd3'),
+      F('퀸침대', 160, 200, 45, '#7fb3ff', 'bed'),
+      F('옷장',    78, 60, 192, '#c7a47b', 'wardrobe'),
       F('책상',   140, 70,  75, '#f5b971'),
       F('의자',    50, 50,  90, '#f7dc6f'),
       F('책장',    80, 40, 180, '#a3d9a5'),
-      F('소파',   220, 90,  80, '#76d7c4'),
+      F('소파',   220, 90,  80, '#76d7c4', 'sofa'),
       F('TV장',   180, 40,  50, '#e59866'),
       F('식탁',   140, 80,  75, '#f1948a'),
       F('냉장고',  90, 80, 180, '#aeb6bf'),
@@ -747,6 +756,7 @@ function renderFurnList() {
       document.getElementById('fD').value = f.d;
       document.getElementById('fH').value = f.h;
       document.getElementById('fColor').value = f.color;
+      document.getElementById('fModel').value = f.model || '';
       setFormImg(f.img || null);
       document.getElementById('fSaveBtn').textContent = '수정';
       document.getElementById('fCancelBtn').style.display = '';
@@ -805,6 +815,7 @@ document.getElementById('fImgFile').addEventListener('change', async evt => {
 function resetFurnForm() {
   editingFurnId = null;
   ['fName', 'fW', 'fD', 'fH'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fModel').value = '';
   setFormImg(null);
   document.getElementById('fSaveBtn').textContent = '추가';
   document.getElementById('fCancelBtn').style.display = 'none';
@@ -817,13 +828,16 @@ document.getElementById('fSaveBtn').addEventListener('click', () => {
   const h = +document.getElementById('fH').value;
   const color = document.getElementById('fColor').value;
   if (!name || !(w > 0) || !(d > 0) || !(h > 0)) { alert('이름과 가로/세로/높이를 입력하세요.'); return; }
+  const model = document.getElementById('fModel').value;
   if (editingFurnId) {
     const f = state.furniture.find(x => x.id === editingFurnId);
     Object.assign(f, { name, w, d, h, color });
     if (formImg) f.img = formImg; else delete f.img;
+    if (model) f.model = model; else delete f.model;
   } else {
     state.furniture.push({ id: 'f' + Date.now(), name, w, d, h, color,
-      ...(formImg ? { img: formImg } : {}), x: 0, y: 0, rot: 0, placed: false });
+      ...(formImg ? { img: formImg } : {}), ...(model ? { model } : {}),
+      x: 0, y: 0, rot: 0, placed: false });
   }
   resetFurnForm();
   commit();
@@ -1067,6 +1081,75 @@ function makeLabelSprite(text) {
   return sprite;
 }
 
+// 절차적 가구 모델: 사진의 특징을 폴리곤 부품 조합으로 표현.
+// 로컬 좌표 — 바닥 y=0, 가로 x(±W/2), 깊이 z(±D/2), 앞면 +z
+function makeModel(f) {
+  const W = f.w, D = f.d, H = f.h;
+  const g = new THREE.Group();
+  const mat = (c, r = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+  const box = (w, h, d, m, x, y, z) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
+  const base = new THREE.Color(f.color);
+  const darker = base.clone().multiplyScalar(0.72);
+
+  switch (f.model) {
+    case 'wardrobe': { // 흰 도어 2장 + 오크 프레임 + 가운데 세로 손잡이 + 흰 다리
+      const oak = mat(0xc7a47b, 0.7), white = mat(0xf7f4ed, 0.55);
+      const legH = Math.min(8, H * 0.06), bodyH = H - legH;
+      box(W, bodyH, D, oak, 0, legH + bodyH / 2, 0);
+      const t = 1.6, gap = 1.2, trim = Math.max(3, W * 0.045);
+      const doorW = (W - trim * 2 - gap) / 2, doorH = bodyH - trim * 2;
+      const dz = D / 2 + t / 2;
+      box(doorW, doorH, t, white, -(gap / 2 + doorW / 2), legH + trim + doorH / 2, dz);
+      box(doorW, doorH, t, white,  (gap / 2 + doorW / 2), legH + trim + doorH / 2, dz);
+      const hH = bodyH * 0.52;
+      box(2.6, hH, 1.6, oak, gap / 2 + 1.3, legH + 4 + hH / 2, dz + t / 2 + 0.8);
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(6, legH, 6, white, sx * (W / 2 - 7), legH / 2, sz * (D / 2 - 7));
+      break;
+    }
+    case 'bed': { // 프레임 + 매트리스 + 헤드보드(뒤쪽) + 이불(f.color) + 베개
+      const frame = mat(0x9c7e5a, 0.7), white = mat(0xf2efe8, 0.9), blanket = mat(base, 0.95);
+      const frameH = H * 0.4, mH = H - frameH;
+      box(W, frameH, D, frame, 0, frameH / 2, 0);
+      box(W - 8, mH, D - 10, white, 0, frameH + mH / 2, 0);
+      const hbH = Math.min(H * 2.1, H + 60);
+      box(W, hbH, 6, frame, 0, hbH / 2, -(D / 2 - 3));
+      box(W - 16, 6, D * 0.55, blanket, 0, H + 1, D * 0.17);
+      const pw = (W - 36) / 2;
+      box(pw, 9, 26, white, -(pw / 2 + 6), H + 4, -(D / 2 - 26));
+      box(pw, 9, 26, white,  (pw / 2 + 6), H + 4, -(D / 2 - 26));
+      break;
+    }
+    case 'sofa': { // 베이스 + 팔걸이 + 등받이 + 시트 쿠션 + 다리
+      const fab = mat(base, 0.95), fabDark = mat(darker, 0.95), legM = mat(0x4a3b2a, 0.6);
+      const legH = Math.min(10, H * 0.12);
+      const armW = Math.min(18, W * 0.1);
+      const seatH = H * 0.45 - legH;
+      const backT = Math.min(20, D * 0.28);
+      const armH = H * 0.8 - legH;
+      box(W, seatH, D, fabDark, 0, legH + seatH / 2, 0);
+      box(armW, armH, D, fabDark, -(W - armW) / 2, legH + armH / 2, 0);
+      box(armW, armH, D, fabDark,  (W - armW) / 2, legH + armH / 2, 0);
+      const innerW = W - armW * 2, backH = H - legH;
+      box(innerW, backH, backT, fab, 0, legH + backH / 2, -(D - backT) / 2);
+      const n = innerW > 160 ? 3 : 2, cushT = H * 0.18;
+      for (let i = 0; i < n; i++)
+        box(innerW / n - 3, cushT, D - backT - 6, fab,
+            -innerW / 2 + innerW / n * (i + 0.5), legH + seatH + cushT / 2, (backT - 4) / 2);
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(5, legH, 5, legM, sx * (W / 2 - 9), legH / 2, sz * (D / 2 - 9));
+      break;
+    }
+    default: return null;
+  }
+  return g;
+}
+
 function build3D() {
   const { group, camera, controls } = three;
   // 기존 오브젝트 정리
@@ -1161,6 +1244,20 @@ function build3D() {
   for (const f of state.furniture) {
     if (!f.placed) continue;
     const fp = footprint(f);
+    const cx0 = f.x + fp.w / 2 - ox, cz0 = f.y + fp.d / 2 - oz;
+
+    // 절차적 모델이 지정된 가구는 부품 조합으로 렌더
+    const modelObj = f.model ? makeModel(f) : null;
+    if (modelObj) {
+      modelObj.rotation.y = -f.rot * Math.PI / 180;
+      modelObj.position.set(cx0, 0, cz0);
+      group.add(modelObj);
+      const label = makeLabelSprite(f.name);
+      label.position.set(cx0, f.h + 50, cz0);
+      group.add(label);
+      continue;
+    }
+
     const bodyMat = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 });
     let mats = bodyMat;
     if (f.img) {
