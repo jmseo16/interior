@@ -136,6 +136,15 @@
   .room-rect { fill: none; stroke: #aab2c0; stroke-width: 6; stroke-linejoin: miter; }
   .zone-rect { fill: #262a31; stroke: #4a5260; stroke-width: 2; stroke-dasharray: 10 7; }
   .zone-label { fill: #6b7382; font-size: 16px; }
+  .door-opening { stroke: #21252c; stroke-width: 9; pointer-events: none; }
+  .door-leaf { stroke: #aab2c0; stroke-width: 4; stroke-linecap: round; pointer-events: none; }
+  .door-swing {
+    fill: rgba(79,140,255,.09);
+    stroke: rgba(79,140,255,.4); stroke-width: 1.5; stroke-dasharray: 6 5;
+    pointer-events: none;
+  }
+  .window-line { stroke: #8fc7ea; stroke-width: 7; pointer-events: none; }
+  .window-core { stroke: #fff; stroke-width: 1.6; pointer-events: none; }
   .grid-line { stroke: #3a4150; stroke-width: 1; }
   .grid-line.major { stroke: #475068; }
   .room-label { fill: #8a93a5; font-size: 22px; font-weight: 600; pointer-events: none; }
@@ -321,7 +330,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 4;
+const STATE_VERSION = 5;
 
 function defaultState() {
   let id = 1;
@@ -332,11 +341,21 @@ function defaultState() {
   return {
     version: STATE_VERSION,
     rooms: [
-      { id: 'r1', name: '방1',  type: 'room', x: 196, y: 0,   w: 299, h: 417 },
+      // doors: wall(n/s/e/w) 기준 off(벽 시작에서 개구부까지), w(문폭), hinge(start/end)
+      // windows: off/w + sill(바닥에서 창 하단), h(창 높이) — 사진 기준
+      { id: 'r1', name: '방1',  type: 'room', x: 196, y: 0,   w: 299, h: 417,
+        doors:   [{ wall: 's', off: 5, w: 80, hinge: 'start' }],
+        windows: [{ wall: 'n', off: 50, w: 200, sill: 45, h: 165 }] },
       { id: 'r2', name: '방2',  type: 'room', x: 858, y: 0,   w: 476, h: 431,
-        cut: { corner: 'ne', w: 150, h: 130 } },
-      { id: 'r3', name: '안방', type: 'room', x: 775, y: 573, w: 412, h: 386 },
-      { id: 'r4', name: '거실', type: 'room', x: 302, y: 620, w: 474, h: 540 },
+        cut: { corner: 'ne', w: 150, h: 130 },
+        doors:   [{ wall: 'w', off: 330, w: 80, hinge: 'end' }],
+        windows: [{ wall: 'n', off: 60, w: 200, sill: 15, h: 195 },
+                  { wall: 'e', off: 180, w: 200, sill: 15, h: 195 }] },
+      { id: 'r3', name: '안방', type: 'room', x: 775, y: 573, w: 412, h: 386,
+        doors:   [{ wall: 'n', off: 20, w: 80, hinge: 'start' }],
+        windows: [{ wall: 's', off: 106, w: 200, sill: 5, h: 215 }] },
+      { id: 'r4', name: '거실', type: 'room', x: 302, y: 620, w: 474, h: 540,
+        windows: [{ wall: 's', off: 30, w: 414, sill: 5, h: 215 }] },
       { id: 'z1', name: '현관',       type: 'zone', x: 30,   y: 420, w: 170, h: 200 },
       { id: 'z2', name: '욕실',       type: 'zone', x: 30,   y: 620, w: 270, h: 165 },
       { id: 'z3', name: '주방 발코니', type: 'zone', x: 495,  y: 0,   w: 363, h: 150 },
@@ -434,6 +453,48 @@ function rectsOverlap(ax, ay, aw, ah, b) {
   return ax < b.x + b.w && ax + aw > b.x && ay < b.y + b.h && ay + ah > b.y;
 }
 
+// 문/창 개구부의 벽 위 절대 구간: n/s는 x축(room.x+off부터), e/w는 y축(room.y+off부터)
+function openingSpan(room, o) {
+  switch (o.wall) {
+    case 'n': return { horizontal: true,  pos: room.y,          a1: room.x + o.off, a2: room.x + o.off + o.w };
+    case 's': return { horizontal: true,  pos: room.y + room.h, a1: room.x + o.off, a2: room.x + o.off + o.w };
+    case 'w': return { horizontal: false, pos: room.x,          a1: room.y + o.off, a2: room.y + o.off + o.w };
+    case 'e': return { horizontal: false, pos: room.x + room.w, a1: room.y + o.off, a2: room.y + o.off + o.w };
+  }
+}
+
+// 문 회전반경(스윙)이 차지하는 방 안쪽 정사각형
+function doorSwingRect(room, d) {
+  const s = openingSpan(room, d);
+  if (s.horizontal)
+    return { x: s.a1, y: d.wall === 'n' ? room.y : room.y + room.h - d.w, w: d.w, h: d.w };
+  return { x: d.wall === 'w' ? room.x : room.x + room.w - d.w, y: s.a1, w: d.w, h: d.w };
+}
+
+// 가구 배치 불가 영역: 모서리 컷 + 문 스윙
+function blockedRects(room) {
+  const list = [];
+  const c = cutRect(room);
+  if (c) list.push(c);
+  for (const d of room.doors || []) list.push(doorSwingRect(room, d));
+  return list;
+}
+
+// 2D/3D 문 그리기용: 힌지점(h), 반대쪽 끝(e), 방 안쪽 법선(n)
+function doorGeom(room, d) {
+  const s = openingSpan(room, d);
+  let hx, hy, ex, ey, nx = 0, ny = 0;
+  if (s.horizontal) {
+    hy = ey = s.pos; ny = d.wall === 'n' ? 1 : -1;
+    hx = s.a1; ex = s.a2;
+  } else {
+    hx = ex = s.pos; nx = d.wall === 'w' ? 1 : -1;
+    hy = s.a1; ey = s.a2;
+  }
+  if (d.hinge === 'end') { [hx, hy, ex, ey] = [ex, ey, hx, hy]; }
+  return { hx, hy, ex, ey, nx, ny, w: d.w };
+}
+
 function roomAt(cx, cy) {
   return state.rooms.find(r => {
     if (r.type === 'zone') return false;
@@ -443,21 +504,25 @@ function roomAt(cx, cy) {
   }) || null;
 }
 
-// 좌상단(x,y)·크기(fw,fd)의 가구를 방 원점 기준 50cm 그리드에 스냅하고 방 안으로 클램프
+// 좌상단(x,y)·크기(fw,fd)의 가구를 방 원점 기준 50cm 그리드에 스냅하고 방 안으로 클램프.
+// 컷/문 스윙 등 배치 불가 영역과 겹치면 가장 가까운 바깥으로 밀어냄
 function snapInRoom(room, x, y, fw, fd) {
   const clampX = v => Math.min(Math.max(v, room.x), Math.max(room.x, room.x + room.w - fw));
   const clampY = v => Math.min(Math.max(v, room.y), Math.max(room.y, room.y + room.h - fd));
   let sx = clampX(room.x + Math.round((x - room.x) / GRID) * GRID);
   let sy = clampY(room.y + Math.round((y - room.y) / GRID) * GRID);
-  // 컷 영역과 겹치면 이동량이 적은 축으로 밀어내기
-  const c = cutRect(room);
-  if (c && rectsOverlap(sx, sy, fw, fd, c)) {
-    const pushX = c.x > room.x ? c.x - fw : c.x + c.w;            // 컷 반대편으로
-    const pushY = c.y > room.y ? c.y - fd : c.y + c.h;
-    const dx = Math.abs(pushX - sx), dy = Math.abs(pushY - sy);
-    if (dx <= dy) sx = clampX(pushX); else sy = clampY(pushY);
-    if (rectsOverlap(sx, sy, fw, fd, c)) {                         // 못 피하면 나머지 축도
-      sx = clampX(pushX); sy = clampY(pushY);
+  const blocks = blockedRects(room);
+  for (let pass = 0; pass < 2; pass++) {
+    for (const c of blocks) {
+      if (!rectsOverlap(sx, sy, fw, fd, c)) continue;
+      let best = null;
+      for (const [qx0, qy0] of [[c.x - fw, sy], [c.x + c.w, sy], [sx, c.y - fd], [sx, c.y + c.h]]) {
+        const qx = clampX(qx0), qy = clampY(qy0);
+        if (rectsOverlap(qx, qy, fw, fd, c)) continue;
+        const dist = Math.abs(qx - sx) + Math.abs(qy - sy);
+        if (!best || dist < best.dist) best = { x: qx, y: qy, dist };
+      }
+      if (best) { sx = best.x; sy = best.y; }
     }
   }
   return { x: sx, y: sy };
@@ -562,6 +627,29 @@ function renderPlan() {
       el('line', { class: 'grid-line' + (gy % 100 === 0 ? ' major' : ''),
                    x1: r.x, y1: r.y + gy, x2: r.x + r.w, y2: r.y + gy }, gridG);
     el('polygon', { class: 'room-rect', points: pts, fill: 'none' }, g);
+
+    // 창문: 벽 위에 하늘색 띠
+    for (const wn of r.windows || []) {
+      const s = openingSpan(r, wn);
+      const [x1, y1, x2, y2] = s.horizontal
+        ? [s.a1, s.pos, s.a2, s.pos] : [s.pos, s.a1, s.pos, s.a2];
+      el('line', { class: 'window-line', x1, y1, x2, y2 }, g);
+      el('line', { class: 'window-core', x1, y1, x2, y2 }, g);
+    }
+    // 문: 개구부(벽 트임) + 문짝 + 회전반경(희미하게, 배치 불가)
+    for (const d of r.doors || []) {
+      const s = openingSpan(r, d);
+      const [ox1, oy1, ox2, oy2] = s.horizontal
+        ? [s.a1, s.pos, s.a2, s.pos] : [s.pos, s.a1, s.pos, s.a2];
+      el('line', { class: 'door-opening', x1: ox1, y1: oy1, x2: ox2, y2: oy2 }, g);
+      const G = doorGeom(r, d);
+      const tx = G.hx + G.nx * G.w, ty = G.hy + G.ny * G.w; // 열린 문짝 끝
+      const cross = (G.ex - G.hx) * (ty - G.hy) - (G.ey - G.hy) * (tx - G.hx);
+      const sweep = cross > 0 ? 1 : 0;
+      el('path', { class: 'door-swing',
+        d: `M ${G.hx} ${G.hy} L ${G.ex} ${G.ey} A ${G.w} ${G.w} 0 0 ${sweep} ${tx} ${ty} Z` }, g);
+      el('line', { class: 'door-leaf', x1: G.hx, y1: G.hy, x2: tx, y2: ty }, g);
+    }
 
     const labelX = r.cut?.corner === 'nw' ? r.x + r.cut.w + 12 : r.x + 12;
     el('text', { class: 'room-label', x: labelX, y: r.y + 30 }, g).textContent = r.name;
@@ -1421,7 +1509,11 @@ function build3D() {
     side: THREE.DoubleSide, depthWrite: false,
   });
   const gridMat = new THREE.LineBasicMaterial({ color: 0x8d8064, transparent: true, opacity: 0.5 });
-  const WALL_T = 8, FLOOR_T = 10;
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0xa8d4f0, transparent: true, opacity: 0.32, roughness: 0.1, depthWrite: false });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xe8ecef, roughness: 0.5 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0xf0ede4, roughness: 0.6 });
+  const WALL_T = 8, FLOOR_T = 10, DOOR_H = 210;
 
   // 폴리곤 외곽 → 바닥 메시 (위 표면 y=0, 아래로 FLOOR_T)
   function makeFloor(outline, mat) {
@@ -1470,17 +1562,81 @@ function build3D() {
     }
     group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
 
-    // 벽: 외곽 폴리곤의 변마다 세그먼트 (반투명)
+    // 벽: 외곽 변마다 문/창 개구부를 비우고 세그먼트로 구성
+    const segBox = (horizontal, pos, a1, a2, yBot, yTop, m) => {
+      if (a2 - a1 < 0.5 || yTop - yBot < 0.5) return;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(
+        horizontal ? a2 - a1 : WALL_T, yTop - yBot, horizontal ? WALL_T : a2 - a1), m);
+      mesh.position.set(
+        horizontal ? (a1 + a2) / 2 - ox : pos - ox,
+        (yBot + yTop) / 2,
+        horizontal ? pos - oz : (a1 + a2) / 2 - oz);
+      group.add(mesh);
+    };
     for (let i = 0; i < outline.length; i++) {
       const [x1, y1] = outline[i], [x2, y2] = outline[(i + 1) % outline.length];
-      const len = Math.hypot(x2 - x1, y2 - y1) + WALL_T;
-      const horizontal = Math.abs(x2 - x1) > Math.abs(y2 - y1);
-      const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(horizontal ? len : WALL_T, WALL_H, horizontal ? WALL_T : len),
-        wallMat,
-      );
-      wall.position.set((x1 + x2) / 2 - ox, WALL_H / 2, (y1 + y2) / 2 - oz);
-      group.add(wall);
+      const horizontal = y1 === y2;
+      const pos = horizontal ? y1 : x1;
+      const lo = horizontal ? Math.min(x1, x2) : Math.min(y1, y2);
+      const hi = horizontal ? Math.max(x1, x2) : Math.max(y1, y2);
+      // 이 변 위에 놓인 개구부 수집
+      const ops = [];
+      for (const d of r.doors || []) {
+        const s = openingSpan(r, d);
+        if (s.horizontal === horizontal && Math.abs(s.pos - pos) < 0.5 &&
+            s.a1 >= lo - 0.5 && s.a2 <= hi + 0.5)
+          ops.push({ ...s, type: 'door' });
+      }
+      for (const wn of r.windows || []) {
+        const s = openingSpan(r, wn);
+        if (s.horizontal === horizontal && Math.abs(s.pos - pos) < 0.5 &&
+            s.a1 >= lo - 0.5 && s.a2 <= hi + 0.5)
+          ops.push({ ...s, type: 'window', sill: wn.sill, h: wn.h });
+      }
+      ops.sort((a, b) => a.a1 - b.a1);
+      let cur = lo;
+      for (const op of ops) {
+        segBox(horizontal, pos, cur, op.a1, 0, WALL_H, wallMat);
+        if (op.type === 'door') {
+          segBox(horizontal, pos, op.a1, op.a2, DOOR_H, WALL_H, wallMat); // 인방
+        } else {
+          segBox(horizontal, pos, op.a1, op.a2, 0, op.sill, wallMat);     // 창 아래
+          segBox(horizontal, pos, op.a1, op.a2, op.sill + op.h, WALL_H, wallMat); // 창 위
+          // 유리 + 프레임
+          const len = op.a2 - op.a1;
+          const pane = new THREE.Mesh(new THREE.BoxGeometry(
+            horizontal ? len : 3, op.h, horizontal ? 3 : len), glassMat);
+          pane.position.set(horizontal ? (op.a1 + op.a2) / 2 - ox : pos - ox,
+                            op.sill + op.h / 2,
+                            horizontal ? pos - oz : (op.a1 + op.a2) / 2 - oz);
+          group.add(pane);
+          segBox(horizontal, pos, op.a1, op.a2, op.sill, op.sill + 4, frameMat);
+          segBox(horizontal, pos, op.a1, op.a2, op.sill + op.h - 4, op.sill + op.h, frameMat);
+          const n = Math.max(2, Math.round(len / 110)); // 미닫이 분할 멀리언
+          for (let m = 0; m <= n; m++) {
+            const mp = op.a1 + (len * m) / n;
+            segBox(horizontal, pos, Math.max(op.a1, mp - 2), Math.min(op.a2, mp + 2),
+                   op.sill, op.sill + op.h, frameMat);
+          }
+        }
+        cur = op.a2;
+      }
+      segBox(horizontal, pos, cur, hi, 0, WALL_H, wallMat);
+    }
+    // 모서리 기둥으로 벽 코너 마감
+    for (const [vx, vy] of outline) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(WALL_T, WALL_H, WALL_T), wallMat);
+      post.position.set(vx - ox, WALL_H / 2, vy - oz);
+      group.add(post);
+    }
+    // 열린 문짝 (힌지에서 방 안쪽으로 90도 열린 상태)
+    for (const d of r.doors || []) {
+      const G = doorGeom(r, d);
+      const tx = G.hx + G.nx * G.w, ty = G.hy + G.ny * G.w;
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(
+        G.nx !== 0 ? G.w : 3, DOOR_H, G.ny !== 0 ? G.w : 3), doorMat);
+      leaf.position.set((G.hx + tx) / 2 - ox, DOOR_H / 2, (G.hy + ty) / 2 - oz);
+      group.add(leaf);
     }
 
     // 방 이름 라벨
