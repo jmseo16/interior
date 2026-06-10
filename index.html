@@ -141,6 +141,7 @@
   .room-label { fill: #8a93a5; font-size: 22px; font-weight: 600; pointer-events: none; }
   .room-size-label { fill: #5d6678; font-size: 15px; pointer-events: none; }
   .furn rect { stroke: rgba(0,0,0,.55); stroke-width: 2; rx: 4; }
+  .furn .front-mark { stroke: rgba(0,0,0,.5); stroke-width: 5; stroke-linecap: round; }
   .furn { cursor: grab; }
   .furn.selected rect.body-rect { stroke: #fff; stroke-width: 3; stroke-dasharray: 8 5; }
   .furn text {
@@ -186,6 +187,13 @@
       <div class="row"><label>이름</label><input type="text" id="fName" placeholder="예: 퀸침대"></div>
       <div class="row"><label>가로</label><input type="number" id="fW" min="1"><label>세로</label><input type="number" id="fD" min="1"></div>
       <div class="row"><label>높이</label><input type="number" id="fH" min="1"><label>색</label><input type="color" id="fColor" value="#7fb3ff"></div>
+      <div class="row"><label>사진</label>
+        <button class="small" id="fImgBtn">업로드</button>
+        <img id="fImgPreview" alt="" style="height:34px;border-radius:4px;border:1px solid var(--border);display:none">
+        <button class="small danger" id="fImgClearBtn" style="display:none">✕</button>
+        <input type="file" id="fImgFile" accept="image/*" style="display:none">
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
       <div class="row">
         <button class="primary" id="fSaveBtn">추가</button>
         <button id="fCancelBtn" style="display:none">취소</button>
@@ -521,11 +529,23 @@ function renderPlan() {
   }
 }
 
+// 가구 앞면(3D에서 사진이 보이는 면) 변의 좌표 — rot 0=남, 90=서, 180=북, 270=동
+function frontEdge(f, fp) {
+  const i = 4; // 안쪽 여백
+  switch (f.rot % 360) {
+    case 90:  return [f.x + i, f.y + i, f.x + i, f.y + fp.d - i];
+    case 180: return [f.x + i, f.y + i, f.x + fp.w - i, f.y + i];
+    case 270: return [f.x + fp.w - i, f.y + i, f.x + fp.w - i, f.y + fp.d - i];
+    default:  return [f.x + i, f.y + fp.d - i, f.x + fp.w - i, f.y + fp.d - i];
+  }
+}
+
 function drawFurniture(f) {
   const fp = footprint(f);
   const g = el('g', { class: 'furn' + (f.id === selectedId ? ' selected' : ''), 'data-id': f.id }, svg);
   el('rect', { class: 'body-rect', x: f.x, y: f.y, width: fp.w, height: fp.d, fill: f.color, rx: 4 }, g);
-  // 방향 표시(앞면): 회전 기준 아래쪽 변에 짧은 선
+  const [ex1, ey1, ex2, ey2] = frontEdge(f, fp);
+  el('line', { class: 'front-mark', x1: ex1, y1: ey1, x2: ex2, y2: ey2 }, g);
   const t = el('text', { x: f.x + fp.w / 2, y: f.y + fp.d / 2 + 5, 'text-anchor': 'middle' }, g);
   t.textContent = f.name;
   g.addEventListener('pointerdown', evt => startDragPlaced(evt, f.id));
@@ -627,6 +647,10 @@ function updateFurnElement(f) {
   const rect = g.querySelector('rect.body-rect');
   rect.setAttribute('x', f.x); rect.setAttribute('y', f.y);
   rect.setAttribute('width', fp.w); rect.setAttribute('height', fp.d);
+  const mark = g.querySelector('line.front-mark');
+  const [ex1, ey1, ex2, ey2] = frontEdge(f, fp);
+  mark.setAttribute('x1', ex1); mark.setAttribute('y1', ey1);
+  mark.setAttribute('x2', ex2); mark.setAttribute('y2', ey2);
   const t = g.querySelector('text');
   t.setAttribute('x', f.x + fp.w / 2); t.setAttribute('y', f.y + fp.d / 2 + 5);
 }
@@ -693,8 +717,10 @@ function renderPalette() {
   for (const f of unplaced) {
     const item = document.createElement('div');
     item.className = 'palette-item';
-    item.innerHTML = `<span class="swatch" style="background:${f.color}"></span>
-      <span>${f.name}</span><span class="dims">${f.w}×${f.d}</span>`;
+    const thumb = f.img
+      ? `<img src="${f.img}" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:4px;flex-shrink:0">`
+      : `<span class="swatch" style="background:${f.color}"></span>`;
+    item.innerHTML = `${thumb}<span>${f.name}</span><span class="dims">${f.w}×${f.d}</span>`;
     item.addEventListener('pointerdown', evt => startDragFromPalette(evt, f.id));
     box.appendChild(item);
   }
@@ -706,7 +732,10 @@ function renderFurnList() {
   for (const f of state.furniture) {
     const item = document.createElement('div');
     item.className = 'list-item';
-    item.innerHTML = `<span class="swatch" style="background:${f.color};width:12px;height:12px;border-radius:3px;flex-shrink:0"></span>
+    const thumb = f.img
+      ? `<img src="${f.img}" alt="" style="width:18px;height:18px;object-fit:cover;border-radius:3px;flex-shrink:0">`
+      : `<span class="swatch" style="background:${f.color};width:12px;height:12px;border-radius:3px;flex-shrink:0"></span>`;
+    item.innerHTML = `${thumb}
       <span class="grow">${f.name}${f.placed ? ' <span style="color:var(--accent)">●</span>' : ''}</span>
       <span class="dims">${f.w}×${f.d}×${f.h}</span>`;
     const editBtn = document.createElement('button');
@@ -718,6 +747,7 @@ function renderFurnList() {
       document.getElementById('fD').value = f.d;
       document.getElementById('fH').value = f.h;
       document.getElementById('fColor').value = f.color;
+      setFormImg(f.img || null);
       document.getElementById('fSaveBtn').textContent = '수정';
       document.getElementById('fCancelBtn').style.display = '';
     });
@@ -734,9 +764,48 @@ function renderFurnList() {
   }
 }
 
+// 가구 사진: localStorage 용량을 위해 긴 변 384px JPEG로 다운스케일해 저장
+let formImg = null;
+function downscaleImage(file, maxDim = 384) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * sc));
+      c.height = Math.max(1, Math.round(img.height * sc));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      res(c.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function setFormImg(dataUrl) {
+  formImg = dataUrl || null;
+  const prev = document.getElementById('fImgPreview');
+  prev.src = formImg || '';
+  prev.style.display = formImg ? '' : 'none';
+  document.getElementById('fImgClearBtn').style.display = formImg ? '' : 'none';
+}
+
+document.getElementById('fImgBtn').addEventListener('click', () =>
+  document.getElementById('fImgFile').click());
+document.getElementById('fImgClearBtn').addEventListener('click', () => setFormImg(null));
+document.getElementById('fImgFile').addEventListener('change', async evt => {
+  const file = evt.target.files[0];
+  if (!file) return;
+  try { setFormImg(await downscaleImage(file)); }
+  catch { alert('이미지를 읽지 못했습니다.'); }
+  evt.target.value = '';
+});
+
 function resetFurnForm() {
   editingFurnId = null;
   ['fName', 'fW', 'fD', 'fH'].forEach(id => document.getElementById(id).value = '');
+  setFormImg(null);
   document.getElementById('fSaveBtn').textContent = '추가';
   document.getElementById('fCancelBtn').style.display = 'none';
 }
@@ -751,8 +820,10 @@ document.getElementById('fSaveBtn').addEventListener('click', () => {
   if (editingFurnId) {
     const f = state.furniture.find(x => x.id === editingFurnId);
     Object.assign(f, { name, w, d, h, color });
+    if (formImg) f.img = formImg; else delete f.img;
   } else {
-    state.furniture.push({ id: 'f' + Date.now(), name, w, d, h, color, x: 0, y: 0, rot: 0, placed: false });
+    state.furniture.push({ id: 'f' + Date.now(), name, w, d, h, color,
+      ...(formImg ? { img: formImg } : {}), x: 0, y: 0, rot: 0, placed: false });
   }
   resetFurnForm();
   commit();
@@ -1001,7 +1072,11 @@ function build3D() {
   // 기존 오브젝트 정리
   while (group.children.length) {
     const c = group.children.pop();
-    c.traverse?.(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+    c.traverse?.(o => {
+      o.geometry?.dispose();
+      const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      mats.forEach(m => { m.map?.dispose(); m.dispose(); });
+    });
   }
 
   const bb = planBBox();
@@ -1082,14 +1157,22 @@ function build3D() {
     group.add(label);
   }
 
+  const texLoader = new THREE.TextureLoader();
   for (const f of state.furniture) {
     if (!f.placed) continue;
     const fp = footprint(f);
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(fp.w, f.h, fp.d),
-      new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 }),
-    );
+    const bodyMat = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 });
+    let mats = bodyMat;
+    if (f.img) {
+      // 사진은 앞면(+z)에만 — rot에 따라 메시째 회전 (rot 0 = 남쪽 향함)
+      const tex = texLoader.load(f.img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const frontMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
+      mats = [bodyMat, bodyMat, bodyMat, bodyMat, frontMat, bodyMat];
+    }
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(f.w, f.h, f.d), mats);
     const cx = f.x + fp.w / 2 - ox, cz = f.y + fp.d / 2 - oz;
+    mesh.rotation.y = -f.rot * Math.PI / 180;
     mesh.position.set(cx, f.h / 2, cz);
     group.add(mesh);
     const edges = new THREE.LineSegments(
@@ -1097,6 +1180,7 @@ function build3D() {
       new THREE.LineBasicMaterial({ color: 0x11131a, transparent: true, opacity: 0.5 }),
     );
     edges.position.copy(mesh.position);
+    edges.rotation.copy(mesh.rotation);
     group.add(edges);
     const label = makeLabelSprite(f.name);
     label.position.set(cx, f.h + 30, cz);
