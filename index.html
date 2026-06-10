@@ -75,7 +75,7 @@
 
   .row { display: flex; gap: 6px; margin: 4px 0; align-items: center; }
   .row label { font-size: 11px; color: var(--muted); width: 34px; flex-shrink: 0; }
-  input[type="text"], input[type="number"] {
+  input[type="text"], input[type="number"], select {
     width: 100%;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -132,7 +132,10 @@
   svg#plan { width: 100%; height: 100%; display: block; touch-action: none; }
 
   /* SVG 요소 */
-  .room-rect { fill: #21252c; stroke: #aab2c0; stroke-width: 6; }
+  .room-fill { fill: #21252c; }
+  .room-rect { fill: none; stroke: #aab2c0; stroke-width: 6; stroke-linejoin: miter; }
+  .zone-rect { fill: #262a31; stroke: #4a5260; stroke-width: 2; stroke-dasharray: 10 7; }
+  .zone-label { fill: #6b7382; font-size: 16px; }
   .grid-line { stroke: #3a4150; stroke-width: 1; }
   .grid-line.major { stroke: #475068; }
   .room-label { fill: #8a93a5; font-size: 22px; font-weight: 600; pointer-events: none; }
@@ -198,6 +201,22 @@
       <div class="row"><label>이름</label><input type="text" id="rName" placeholder="예: 거실"></div>
       <div class="row"><label>위치X</label><input type="number" id="rX"><label>위치Y</label><input type="number" id="rY"></div>
       <div class="row"><label>가로</label><input type="number" id="rW" min="50"><label>세로</label><input type="number" id="rH" min="50"></div>
+      <div class="row"><label>컷</label>
+        <select id="rCutCorner">
+          <option value="">없음</option>
+          <option value="ne">오른쪽 위</option>
+          <option value="nw">왼쪽 위</option>
+          <option value="se">오른쪽 아래</option>
+          <option value="sw">왼쪽 아래</option>
+        </select>
+        <input type="number" id="rCutW" min="1" placeholder="가로" title="컷 가로(cm)">
+        <input type="number" id="rCutH" min="1" placeholder="세로" title="컷 세로(cm)">
+      </div>
+      <div class="row" style="font-size:12px">
+        <label></label>
+        <input type="checkbox" id="rZone" style="width:auto">
+        <span>배치 불가 공간 (참고용)</span>
+      </div>
       <div class="row">
         <button class="primary" id="rSaveBtn">추가</button>
         <button id="rCancelBtn" style="display:none">취소</button>
@@ -278,16 +297,28 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
+const STATE_VERSION = 2;
+
 function defaultState() {
   let id = 1;
   const F = (name, w, d, h, color) =>
     ({ id: 'f' + id++, name, w, d, h, color, x: 0, y: 0, rot: 0, placed: false });
+  // 실측 평면도 (발코니 확장 반영, 단위 cm). zone은 배치 불가 참고용 공간.
   return {
+    version: STATE_VERSION,
     rooms: [
-      { id: 'r1', name: '거실',  x: 300, y: 0,   w: 500, h: 400 },
-      { id: 'r2', name: '안방',  x: 800, y: 0,   w: 350, h: 300 },
-      { id: 'r3', name: '방2',   x: 0,   y: 0,   w: 300, h: 250 },
-      { id: 'r4', name: '방3',   x: 0,   y: 250, w: 250, h: 250 },
+      { id: 'r1', name: '방1',  type: 'room', x: 196, y: 0,   w: 299, h: 417 },
+      { id: 'r2', name: '방2',  type: 'room', x: 858, y: 0,   w: 476, h: 431,
+        cut: { corner: 'ne', w: 150, h: 130 } },
+      { id: 'r3', name: '안방', type: 'room', x: 775, y: 573, w: 412, h: 386 },
+      { id: 'r4', name: '거실', type: 'room', x: 302, y: 620, w: 474, h: 540 },
+      { id: 'z1', name: '현관',       type: 'zone', x: 30,   y: 420, w: 170, h: 200 },
+      { id: 'z2', name: '욕실',       type: 'zone', x: 30,   y: 620, w: 270, h: 165 },
+      { id: 'z3', name: '주방 발코니', type: 'zone', x: 495,  y: 0,   w: 363, h: 150 },
+      { id: 'z4', name: '주방·식당',   type: 'zone', x: 495,  y: 150, w: 363, h: 470 },
+      { id: 'z5', name: '드레스룸',    type: 'zone', x: 990,  y: 431, w: 200, h: 162 },
+      { id: 'z6', name: '안방 욕실',   type: 'zone', x: 1192, y: 431, w: 142, h: 162 },
+      { id: 'z7', name: '안방 발코니', type: 'zone', x: 775,  y: 959, w: 315, h: 200 },
     ],
     furniture: [
       F('퀸침대', 160, 200, 45, '#7fb3ff'),
@@ -327,8 +358,16 @@ function loadAutosave() {
     if (!raw) return null;
     const s = JSON.parse(raw);
     if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) return null;
+    if (s.version !== STATE_VERSION) return null; // 구버전 예시 데이터는 새 평면도로 교체
     return s;
   } catch { return null; }
+}
+
+// 외부 JSON/구버전 세션 데이터 보정
+function normalizeState(s) {
+  s.version = STATE_VERSION;
+  for (const r of s.rooms) if (r.type !== 'zone') r.type = 'room';
+  return s;
 }
 
 function getSessions() {
@@ -346,16 +385,58 @@ function footprint(f) {
   return (f.rot % 180 === 0) ? { w: f.w, d: f.d } : { w: f.d, d: f.w };
 }
 
+// 모서리 컷(ㄴ자 방)의 절대 좌표 사각형
+function cutRect(r) {
+  const c = r.cut;
+  if (!c || !(c.w > 0) || !(c.h > 0)) return null;
+  const cx = c.corner.includes('e') ? r.x + r.w - c.w : r.x;
+  const cy = c.corner.includes('s') ? r.y + r.h - c.h : r.y;
+  return { x: cx, y: cy, w: c.w, h: c.h };
+}
+
+// 컷을 반영한 방 외곽 폴리곤 점 배열 (시계 방향)
+function roomOutline(r) {
+  const c = cutRect(r);
+  const x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+  if (!c) return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  switch (r.cut.corner) {
+    case 'ne': return [[x0, y0], [c.x, y0], [c.x, y0 + c.h], [x1, y0 + c.h], [x1, y1], [x0, y1]];
+    case 'nw': return [[x0 + c.w, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0 + c.h], [x0 + c.w, y0 + c.h]];
+    case 'se': return [[x0, y0], [x1, y0], [x1, c.y], [c.x, c.y], [c.x, y1], [x0, y1]];
+    case 'sw': return [[x0, y0], [x1, y0], [x1, y1], [x0 + c.w, y1], [x0 + c.w, c.y], [x0, c.y]];
+  }
+}
+
+function rectsOverlap(ax, ay, aw, ah, b) {
+  return ax < b.x + b.w && ax + aw > b.x && ay < b.y + b.h && ay + ah > b.y;
+}
+
 function roomAt(cx, cy) {
-  return state.rooms.find(r => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) || null;
+  return state.rooms.find(r => {
+    if (r.type === 'zone') return false;
+    if (!(cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h)) return false;
+    const c = cutRect(r);
+    return !(c && cx >= c.x && cx <= c.x + c.w && cy >= c.y && cy <= c.y + c.h);
+  }) || null;
 }
 
 // 좌상단(x,y)·크기(fw,fd)의 가구를 방 원점 기준 50cm 그리드에 스냅하고 방 안으로 클램프
 function snapInRoom(room, x, y, fw, fd) {
-  let sx = room.x + Math.round((x - room.x) / GRID) * GRID;
-  let sy = room.y + Math.round((y - room.y) / GRID) * GRID;
-  sx = Math.min(Math.max(sx, room.x), Math.max(room.x, room.x + room.w - fw));
-  sy = Math.min(Math.max(sy, room.y), Math.max(room.y, room.y + room.h - fd));
+  const clampX = v => Math.min(Math.max(v, room.x), Math.max(room.x, room.x + room.w - fw));
+  const clampY = v => Math.min(Math.max(v, room.y), Math.max(room.y, room.y + room.h - fd));
+  let sx = clampX(room.x + Math.round((x - room.x) / GRID) * GRID);
+  let sy = clampY(room.y + Math.round((y - room.y) / GRID) * GRID);
+  // 컷 영역과 겹치면 이동량이 적은 축으로 밀어내기
+  const c = cutRect(room);
+  if (c && rectsOverlap(sx, sy, fw, fd, c)) {
+    const pushX = c.x > room.x ? c.x - fw : c.x + c.w;            // 컷 반대편으로
+    const pushY = c.y > room.y ? c.y - fd : c.y + c.h;
+    const dx = Math.abs(pushX - sx), dy = Math.abs(pushY - sy);
+    if (dx <= dy) sx = clampX(pushX); else sy = clampY(pushY);
+    if (rectsOverlap(sx, sy, fw, fd, c)) {                         // 못 피하면 나머지 축도
+      sx = clampX(pushX); sy = clampY(pushY);
+    }
+  }
   return { x: sx, y: sy };
 }
 
@@ -398,18 +479,39 @@ function renderPlan() {
   const bb = planBBox();
   svg.setAttribute('viewBox', `${bb.x} ${bb.y} ${bb.w} ${bb.h}`);
 
-  // 방 + 그리드
+  const defs = el('defs', {}, svg);
+
+  // 참고용 zone (배치 불가) — 방 아래 레이어
   for (const r of state.rooms) {
+    if (r.type !== 'zone') continue;
+    const g = el('g', { class: 'zone', 'pointer-events': 'none' }, svg);
+    el('rect', { class: 'zone-rect', x: r.x, y: r.y, width: r.w, height: r.h }, g);
+    el('text', { class: 'zone-label', x: r.x + r.w / 2, y: r.y + r.h / 2 + 5,
+                 'text-anchor': 'middle' }, g).textContent = r.name;
+  }
+
+  // 방 + 그리드 (컷 반영 폴리곤, 그리드는 방 모양으로 클리핑)
+  for (const r of state.rooms) {
+    if (r.type === 'zone') continue;
+    const pts = roomOutline(r).map(p => p.join(',')).join(' ');
+    const clip = el('clipPath', { id: 'clip-' + r.id }, defs);
+    el('polygon', { points: pts }, clip);
+
     const g = el('g', {}, svg);
-    el('rect', { class: 'room-rect', x: r.x, y: r.y, width: r.w, height: r.h }, g);
+    el('polygon', { class: 'room-fill', points: pts }, g);
+    const gridG = el('g', { 'clip-path': `url(#clip-${r.id})` }, g);
     for (let gx = GRID; gx < r.w; gx += GRID)
       el('line', { class: 'grid-line' + (gx % 100 === 0 ? ' major' : ''),
-                   x1: r.x + gx, y1: r.y, x2: r.x + gx, y2: r.y + r.h }, g);
+                   x1: r.x + gx, y1: r.y, x2: r.x + gx, y2: r.y + r.h }, gridG);
     for (let gy = GRID; gy < r.h; gy += GRID)
       el('line', { class: 'grid-line' + (gy % 100 === 0 ? ' major' : ''),
-                   x1: r.x, y1: r.y + gy, x2: r.x + r.w, y2: r.y + gy }, g);
-    el('text', { class: 'room-label', x: r.x + 12, y: r.y + 30 }, g).textContent = r.name;
-    el('text', { class: 'room-size-label', x: r.x + 12, y: r.y + 50 }, g).textContent = `${r.w}×${r.h}`;
+                   x1: r.x, y1: r.y + gy, x2: r.x + r.w, y2: r.y + gy }, gridG);
+    el('polygon', { class: 'room-rect', points: pts, fill: 'none' }, g);
+
+    const labelX = r.cut?.corner === 'nw' ? r.x + r.cut.w + 12 : r.x + 12;
+    el('text', { class: 'room-label', x: labelX, y: r.y + 30 }, g).textContent = r.name;
+    el('text', { class: 'room-size-label', x: labelX, y: r.y + 50 }, g).textContent =
+      `${r.w}×${r.h}${r.cut ? ' (ㄴ자)' : ''}`;
   }
 
   // 배치된 가구
@@ -514,6 +616,7 @@ svg.addEventListener('pointerup', onPointerUp);
 svg.addEventListener('pointerdown', evt => {
   // 빈 곳 클릭 시 선택 해제
   if (evt.target === svg || evt.target.classList.contains('room-rect') ||
+      evt.target.classList.contains('room-fill') ||
       evt.target.classList.contains('grid-line')) selectFurniture(null);
 });
 
@@ -662,7 +765,7 @@ function renderRoomList() {
   for (const r of state.rooms) {
     const item = document.createElement('div');
     item.className = 'list-item';
-    item.innerHTML = `<span class="grow">${r.name}</span>
+    item.innerHTML = `<span class="grow">${r.name}${r.type === 'zone' ? ' <span style="color:var(--muted)">(참고)</span>' : ''}${r.cut ? ' <span style="color:var(--accent)">ㄴ</span>' : ''}</span>
       <span class="dims">${r.w}×${r.h} @(${r.x},${r.y})</span>`;
     const editBtn = document.createElement('button');
     editBtn.className = 'small'; editBtn.textContent = '✎';
@@ -673,6 +776,10 @@ function renderRoomList() {
       document.getElementById('rY').value = r.y;
       document.getElementById('rW').value = r.w;
       document.getElementById('rH').value = r.h;
+      document.getElementById('rCutCorner').value = r.cut?.corner || '';
+      document.getElementById('rCutW').value = r.cut?.w || '';
+      document.getElementById('rCutH').value = r.cut?.h || '';
+      document.getElementById('rZone').checked = r.type === 'zone';
       document.getElementById('rSaveBtn').textContent = '수정';
       document.getElementById('rCancelBtn').style.display = '';
     });
@@ -697,7 +804,9 @@ function renderRoomList() {
 
 function resetRoomForm() {
   editingRoomId = null;
-  ['rName', 'rX', 'rY', 'rW', 'rH'].forEach(id => document.getElementById(id).value = '');
+  ['rName', 'rX', 'rY', 'rW', 'rH', 'rCutW', 'rCutH'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('rCutCorner').value = '';
+  document.getElementById('rZone').checked = false;
   document.getElementById('rSaveBtn').textContent = '추가';
   document.getElementById('rCancelBtn').style.display = 'none';
 }
@@ -708,10 +817,22 @@ document.getElementById('rSaveBtn').addEventListener('click', () => {
   const y = +document.getElementById('rY').value || 0;
   const w = +document.getElementById('rW').value;
   const h = +document.getElementById('rH').value;
+  const type = document.getElementById('rZone').checked ? 'zone' : 'room';
+  const corner = document.getElementById('rCutCorner').value;
+  const cw = +document.getElementById('rCutW').value;
+  const ch = +document.getElementById('rCutH').value;
   if (!name || !(w >= 50) || !(h >= 50)) { alert('이름과 50 이상의 가로/세로를 입력하세요.'); return; }
+  let cut;
+  if (corner) {
+    if (!(cw > 0) || !(ch > 0) || cw >= w || ch >= h) {
+      alert('컷 크기는 0보다 크고 방보다 작아야 합니다.'); return;
+    }
+    cut = { corner, w: cw, h: ch };
+  }
   if (editingRoomId) {
     const r = state.rooms.find(rr => rr.id === editingRoomId);
-    Object.assign(r, { name, x, y, w, h });
+    Object.assign(r, { name, x, y, w, h, type });
+    if (cut) r.cut = cut; else delete r.cut;
     // 방이 줄어들어 밖으로 나간 가구는 배치 해제
     for (const f of state.furniture) {
       if (!f.placed) continue;
@@ -719,7 +840,7 @@ document.getElementById('rSaveBtn').addEventListener('click', () => {
       if (!roomAt(f.x + fp.w / 2, f.y + fp.d / 2)) f.placed = false;
     }
   } else {
-    state.rooms.push({ id: 'r' + Date.now(), name, x, y, w, h });
+    state.rooms.push({ id: 'r' + Date.now(), name, x, y, w, h, type, ...(cut ? { cut } : {}) });
   }
   resetRoomForm();
   commit();
@@ -745,7 +866,7 @@ function renderSessions() {
     const loadBtn = document.createElement('button');
     loadBtn.className = 'small'; loadBtn.textContent = '열기';
     loadBtn.addEventListener('click', () => {
-      state = JSON.parse(JSON.stringify(sessions[name].state));
+      state = normalizeState(JSON.parse(JSON.stringify(sessions[name].state)));
       selectFurniture(null);
       commit();
     });
@@ -790,7 +911,7 @@ document.getElementById('importFile').addEventListener('change', evt => {
     try {
       const s = JSON.parse(reader.result);
       if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) throw new Error();
-      state = s;
+      state = normalizeState(s);
       selectFurniture(null);
       commit();
     } catch { alert('올바른 플로어플랜 JSON 파일이 아닙니다.'); }
@@ -887,6 +1008,7 @@ function build3D() {
   const ox = bb.cx, oz = bb.cy; // 평면도 중심을 3D 원점으로
 
   const floorMat = new THREE.MeshStandardMaterial({ color: 0xb8a98e, roughness: 0.9 });
+  const zoneMat = new THREE.MeshStandardMaterial({ color: 0x4a4f58, roughness: 0.95 });
   const wallMat = new THREE.MeshStandardMaterial({
     color: 0xdde3ee, transparent: true, opacity: 0.22,
     side: THREE.DoubleSide, depthWrite: false,
@@ -894,33 +1016,66 @@ function build3D() {
   const gridMat = new THREE.LineBasicMaterial({ color: 0x8d8064, transparent: true, opacity: 0.5 });
   const WALL_T = 8, FLOOR_T = 10;
 
+  // 폴리곤 외곽 → 바닥 메시 (위 표면 y=0, 아래로 FLOOR_T)
+  function makeFloor(outline, mat) {
+    const shape = new THREE.Shape();
+    outline.forEach(([px, py], i) => {
+      if (i === 0) shape.moveTo(px - ox, py - oz);
+      else shape.lineTo(px - ox, py - oz);
+    });
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: FLOOR_T, bevelEnabled: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = Math.PI / 2; // shape y → 월드 z, 압출 방향 → 아래(-y)
+    return mesh;
+  }
+
   for (const r of state.rooms) {
+    const outline = roomOutline(r);
     const cx = r.x + r.w / 2 - ox, cz = r.y + r.h / 2 - oz;
-    // 바닥
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w, FLOOR_T, r.h), floorMat);
-    floor.position.set(cx, -FLOOR_T / 2, cz);
-    group.add(floor);
-    // 바닥 위 50cm 그리드
+
+    if (r.type === 'zone') {
+      group.add(makeFloor(outline, zoneMat));
+      const label = makeLabelSprite(r.name);
+      label.position.set(cx, 30, cz);
+      label.scale.multiplyScalar(0.7);
+      group.add(label);
+      continue;
+    }
+
+    group.add(makeFloor(outline, floorMat));
+
+    // 바닥 위 50cm 그리드 (컷 영역 제외)
+    const c = cutRect(r);
     const pts = [];
-    for (let gx = 0; gx <= r.w; gx += GRID)
-      pts.push(new THREE.Vector3(r.x + gx - ox, 0.5, r.y - oz),
-               new THREE.Vector3(r.x + gx - ox, 0.5, r.y + r.h - oz));
-    for (let gy = 0; gy <= r.h; gy += GRID)
-      pts.push(new THREE.Vector3(r.x - ox, 0.5, r.y + gy - oz),
-               new THREE.Vector3(r.x + r.w - ox, 0.5, r.y + gy - oz));
+    for (let gx = r.x + GRID; gx < r.x + r.w; gx += GRID) {
+      let y0 = r.y, y1 = r.y + r.h;
+      if (c && gx >= c.x && gx <= c.x + c.w) {
+        if (c.y <= y0) y0 = c.y + c.h; else y1 = c.y; // 컷은 모서리라 위/아래 중 한쪽
+      }
+      pts.push(new THREE.Vector3(gx - ox, 0.5, y0 - oz), new THREE.Vector3(gx - ox, 0.5, y1 - oz));
+    }
+    for (let gy = r.y + GRID; gy < r.y + r.h; gy += GRID) {
+      let x0 = r.x, x1 = r.x + r.w;
+      if (c && gy >= c.y && gy <= c.y + c.h) {
+        if (c.x <= x0) x0 = c.x + c.w; else x1 = c.x;
+      }
+      pts.push(new THREE.Vector3(x0 - ox, 0.5, gy - oz), new THREE.Vector3(x1 - ox, 0.5, gy - oz));
+    }
     group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
-    // 벽 4면 (반투명)
-    const walls = [
-      { w: r.w + WALL_T, d: WALL_T, x: cx, z: r.y - oz },           // 북
-      { w: r.w + WALL_T, d: WALL_T, x: cx, z: r.y + r.h - oz },     // 남
-      { w: WALL_T, d: r.h + WALL_T, x: r.x - ox, z: cz },           // 서
-      { w: WALL_T, d: r.h + WALL_T, x: r.x + r.w - ox, z: cz },     // 동
-    ];
-    for (const wd of walls) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(wd.w, WALL_H, wd.d), wallMat);
-      wall.position.set(wd.x, WALL_H / 2, wd.z);
+
+    // 벽: 외곽 폴리곤의 변마다 세그먼트 (반투명)
+    for (let i = 0; i < outline.length; i++) {
+      const [x1, y1] = outline[i], [x2, y2] = outline[(i + 1) % outline.length];
+      const len = Math.hypot(x2 - x1, y2 - y1) + WALL_T;
+      const horizontal = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+      const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(horizontal ? len : WALL_T, WALL_H, horizontal ? WALL_T : len),
+        wallMat,
+      );
+      wall.position.set((x1 + x2) / 2 - ox, WALL_H / 2, (y1 + y2) / 2 - oz);
       group.add(wall);
     }
+
     // 방 이름 라벨
     const label = makeLabelSprite(r.name);
     label.position.set(cx, WALL_H + 40, cz);
