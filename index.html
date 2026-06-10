@@ -196,6 +196,13 @@
       <div class="row"><label>3D</label>
         <select id="fModel">
           <option value="">기본 박스</option>
+          <option value="kidsWardrobe">아이들 옷장 (서랍+도어)</option>
+          <option value="kidsBookshelf">아이들 책장 (2열3단+책)</option>
+          <option value="kidsDesk">아이들 책상 (높이조절)</option>
+          <option value="bunkBed">2층침대 (슬라이딩)</option>
+          <option value="piano">피아노 (디지털)</option>
+          <option value="glassBookcase">책장 (유리도어+우드)</option>
+          <option value="ikeaDesk">이케아 책상 (MICKE)</option>
           <option value="wardrobe">옷장 (도어+우드프레임)</option>
           <option value="bed">침대 (매트리스+헤드보드)</option>
           <option value="sofa">소파 (쿠션+팔걸이)</option>
@@ -314,7 +321,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
 
 function defaultState() {
   let id = 1;
@@ -339,16 +346,14 @@ function defaultState() {
       { id: 'z7', name: '안방 발코니', type: 'zone', x: 775,  y: 959, w: 315, h: 200 },
     ],
     furniture: [
-      F('퀸침대', 160, 200, 45, '#7fb3ff', 'bed'),
-      F('옷장',    78, 60, 192, '#c7a47b', 'wardrobe'),
-      F('책상',   140, 70,  75, '#f5b971'),
-      F('의자',    50, 50,  90, '#f7dc6f'),
-      F('책장',    80, 40, 180, '#a3d9a5'),
-      F('소파',   220, 90,  80, '#76d7c4', 'sofa'),
-      F('TV장',   180, 40,  50, '#e59866'),
-      F('식탁',   140, 80,  75, '#f1948a'),
-      F('냉장고',  90, 80, 180, '#aeb6bf'),
-      F('세탁기',  65, 65,  85, '#85c1e9'),
+      // 실제 가구 (PDF "가구들" 기준, 천장 240cm로 상대높이 환산)
+      F('아이들 옷장',   174, 45,  120, '#e8d8b0', 'kidsWardrobe'),
+      F('아이들 책장',   120, 40,  120, '#a3d9a5', 'kidsBookshelf'),
+      F('아이들 책상',   120, 75,   75, '#f5b971', 'kidsDesk'),
+      F('2층침대',      206, 118,  81, '#7fb3ff', 'bunkBed'),
+      F('피아노',       135, 40,   60, '#d6c2e8', 'piano'),
+      F('책장(유리도어)', 78, 32,  192, '#8fc7d6', 'glassBookcase'),
+      F('이케아 책상',   105, 50,   80, '#f1948a', 'ikeaDesk'),
     ],
   };
 }
@@ -1194,8 +1199,28 @@ function makeModel(f) {
     g.add(mesh);
     return mesh;
   };
+  const cyl = (r, len, m, x, y, z) => { // 손잡이 등 원기둥 (앞면 +z 방향)
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 16), m);
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
   const base = new THREE.Color(f.color);
   const darker = base.clone().multiplyScalar(0.72);
+  const BOOK_COLORS = [0xe26d5c, 0xf2b134, 0x4f86c6, 0x79b473, 0x9b6bb3, 0xe8927c, 0x5cb8b2, 0xd95f80];
+  // 칸 안에 알록달록한 책 슬랩 채우기 (cx=칸 중심 x, baseY=칸 바닥, cw=칸 폭, ch=칸 높이)
+  const fillBooks = (cx, baseY, cw, ch, depth, seed) => {
+    let bx = cx - cw / 2 + 1.5;
+    const n = 5 + seed % 4;
+    for (let i = 0; i < n; i++) {
+      const bw = 3 + (seed + i) % 3, bh = ch - 6 - ((i * 2 + seed) % 3) * 3;
+      if (bx + bw > cx + cw / 2 - 1.5) break;
+      box(bw, bh, depth, mat(BOOK_COLORS[(seed * 3 + i) % BOOK_COLORS.length], 0.85),
+          bx + bw / 2, baseY + bh / 2, 0);
+      bx += bw + 1;
+    }
+  };
 
   switch (f.model) {
     case 'wardrobe': { // 흰 도어 2장 + 오크 프레임 + 가운데 세로 손잡이 + 흰 다리
@@ -1244,6 +1269,129 @@ function makeModel(f) {
             -innerW / 2 + innerW / n * (i + 0.5), legH + seatH + cushT / 2, (backT - 4) / 2);
       for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
         box(5, legH, 5, legM, sx * (W / 2 - 9), legH / 2, sz * (D / 2 - 9));
+      break;
+    }
+    case 'kidsWardrobe': { // 흰 3유닛: 서랍4단 + 가운데 도어2짝 + 서랍4단, 원목 손잡이
+      const white = mat(0xf7f5f0, 0.6), front = mat(0xfcfbf8, 0.6), knob = mat(0xc8a06d, 0.6);
+      box(W, H, D, white, 0, H / 2, 0);
+      const t = 1.4, uw = W / 3, fz = D / 2 + t / 2;
+      for (const sx of [-1, 1]) { // 좌우 서랍 4단
+        const ux = sx * uw;
+        for (let i = 0; i < 4; i++) {
+          const dy = H - (i + 0.5) * (H / 4);
+          box(uw - 4, H / 4 - 2.5, t, front, ux, dy, fz);
+          cyl(2.4, 2.2, knob, ux, dy, fz + t / 2 + 1);
+        }
+      }
+      const dw = uw / 2 - 2; // 중앙 도어 2짝
+      box(dw, H - 4, t, front, -(dw / 2 + 1), H / 2, fz);
+      box(dw, H - 4, t, front,  (dw / 2 + 1), H / 2, fz);
+      cyl(2.4, 2.2, knob, -3.4, H / 2, fz + t / 2 + 1);
+      cyl(2.4, 2.2, knob,  3.4, H / 2, fz + t / 2 + 1);
+      break;
+    }
+    case 'kidsBookshelf': { // 흰 오픈 책장 2열×3단 + 책
+      const white = mat(0xf7f5f0, 0.6);
+      const t = 2.5;
+      box(W, H, 1.5, white, 0, H / 2, -D / 2 + 0.75);                 // 뒤판
+      box(t, H, D, white, -(W - t) / 2, H / 2, 0);                    // 좌우 측판
+      box(t, H, D, white,  (W - t) / 2, H / 2, 0);
+      box(W, t, D, white, 0, H - t / 2, 0);                           // 상판/하판
+      box(W, t, D, white, 0, t / 2, 0);
+      box(t, H, D, white, 0, H / 2, 0);                               // 중앙 칸막이
+      box(W, t, D, white, 0, H / 3, 0);                               // 선반 2장
+      box(W, t, D, white, 0, 2 * H / 3, 0);
+      for (let c = 0; c < 2; c++) for (let r = 0; r < 3; r++) {
+        const cellW = W / 2 - t * 1.5, cellH = H / 3 - t;
+        fillBooks((c ? 1 : -1) * (W / 4), r * H / 3 + t, cellW, cellH, D - 12, c * 3 + r + 1);
+      }
+      break;
+    }
+    case 'kidsDesk': { // 흰 상판 + 회색 T자 다리 (높이조절형, 평평 처리)
+      const white = mat(0xfcfbf8, 0.55), gray = mat(0xc9ccd1, 0.5), gray2 = mat(0xb9bcc2, 0.5);
+      box(W, 4, D, white, 0, H - 2, 0);                               // 상판
+      for (const sx of [-1, 1]) {
+        const lx = sx * (W / 2 - 14);
+        box(7, H - 9, 8, gray, lx, (H - 9) / 2 + 5, 0);               // 기둥
+        box(11, 5, D * 0.85, gray, lx, 2.5, 0);                       // T자 발
+      }
+      box(W - 56, 5, 6, gray, 0, H - 12, -D * 0.25);                  // 가로 빔
+      box(10, 3, 9, gray2, W / 2 - 22, H - 5.5, D / 2 - 8);           // 높이조절 컨트롤
+      break;
+    }
+    case 'bunkBed': { // 에디키즈 슬라이딩 2단(SS), 닫힌 상태
+      const white = mat(0xf7f5f0, 0.6), white2 = mat(0xfcfbf8, 0.6);
+      const matr = mat(0xfbfaf7, 0.9), blanket = mat(0x8fb7e8, 0.95);
+      const lowH = H * 0.36, railH = H * 0.25, frameTop = H - railH;
+      // 하단 슬라이딩 베드
+      box(W - 2, lowH - 1, D - 4, white2, 0, lowH / 2, 0);
+      box(W - 10, lowH - 8, 1.5, mat(0xf1eee8, 0.8), 0, lowH / 2, D / 2 - 1.2);
+      box(16, 3, 1.5, mat(0xd9d5cd, 0.7), 0, lowH * 0.45, D / 2 - 0.2); // 손잡이 홈
+      // 상단 프레임
+      box(W, frameTop - lowH, D, white, 0, lowH + (frameTop - lowH) / 2, 0);
+      // 매트리스 + 이불 (프레임 위)
+      box(W - 10, 8, D - 12, matr, 0, frameTop + 3, 0);
+      box(W * 0.4, 9, D - 20, blanket, W * 0.05, frameTop + 4, 0);
+      // 가드레일: 뒤 전체 + 양 끝 + 앞 양 끝(가운데 입구)
+      box(W, railH, 2.5, white2, 0, frameTop + railH / 2, -(D / 2 - 1.25));
+      box(2.5, railH, D, white2, -(W / 2 - 1.25), frameTop + railH / 2, 0);
+      box(2.5, railH, D, white2,  (W / 2 - 1.25), frameTop + railH / 2, 0);
+      box(26, railH, 2.5, white2, -(W / 2 - 13), frameTop + railH / 2, D / 2 - 1.25);
+      box(26, railH, 2.5, white2,  (W / 2 - 13), frameTop + railH / 2, D / 2 - 1.25);
+      break;
+    }
+    case 'piano': { // 흰 콘솔형 디지털피아노
+      const white = mat(0xf7f5f0, 0.5), white2 = mat(0xfcfbf8, 0.5);
+      box(7, H - 6, D, white, -(W - 7) / 2, (H - 6) / 2, 0);          // 측면 다리
+      box(7, H - 6, D, white,  (W - 7) / 2, (H - 6) / 2, 0);
+      box(W, 6, D, white, 0, H - 3, 0);                               // 상판
+      box(W * 0.45, 1.5, 18, white2, 0, H + 0.75, -2);                // 보면대(눕힘)
+      const deckTop = H - 6;
+      box(W - 14, 10, D - 4, white, 0, deckTop - 5, 1);               // 건반 데크
+      box(W - 18, 2, 13, mat(0xfdfdfb, 0.35), 0, deckTop - 1, D / 2 - 8); // 흰건반
+      const keys = Math.floor((W - 22) / 3.3);
+      for (let i = 0; i < keys; i++) {
+        if (i % 7 === 2 || i % 7 === 6) continue;
+        box(1.8, 1.6, 7, mat(0x222222, 0.4), -(W - 22) / 2 + 2 + i * 3.3, deckTop + 0.3, D / 2 - 11);
+      }
+      box(W - 14, deckTop - 12, 2.5, white, 0, (deckTop - 12) / 2 + 1, D / 2 - 7); // 프런트 보드
+      box(20, 3, 3, mat(0xd8d4cc, 0.6), 0, 1.5, D / 2 - 4);           // 페달부
+      for (let i = -1; i <= 1; i++)
+        box(2.4, 3.6, 2, mat(0xc9b26a, 0.4), i * 5, 3, D / 2 - 2.5);  // 페달 3개
+      break;
+    }
+    case 'glassBookcase': { // 상부 유리도어+책, 하부 우드 도어
+      const white = mat(0xf7f5f0, 0.6), wood = mat(0xc8a06d, 0.7), silver = mat(0x9aa6ae, 0.4);
+      const glass = new THREE.MeshStandardMaterial({
+        color: 0xb9d4e6, transparent: true, opacity: 0.32, roughness: 0.15, depthWrite: false });
+      const lowHt = H / 3;
+      box(W, H, 1.5, white, 0, H / 2, -D / 2 + 0.75);                 // 뒤판
+      box(2, H, D, white, -(W - 2) / 2, H / 2, 0);                    // 측판
+      box(2, H, D, white,  (W - 2) / 2, H / 2, 0);
+      box(W, 2, D, white, 0, H - 1, 0);                               // 상판
+      box(W - 2, lowHt, D - 2, white, 0, lowHt / 2, 0);               // 하부 몸통
+      box(W / 2 - 1.5, lowHt - 3, 1.5, wood, -(W / 4 - 0.4), lowHt / 2, D / 2 + 0.4); // 우드 도어 2짝
+      box(W / 2 - 1.5, lowHt - 3, 1.5, wood,  (W / 4 - 0.4), lowHt / 2, D / 2 + 0.4);
+      const upH = H - lowHt - 2, rows = 3, rh = upH / rows;
+      for (let r = 0; r < rows; r++) {
+        if (r > 0) box(W - 3, 2, D - 3, white, 0, lowHt + r * rh, 0); // 선반
+        fillBooks(0, lowHt + r * rh + 1.5, W - 8, rh - 4, D - 10, r + 2);
+      }
+      box(W / 2 - 1, upH, 0.8, glass, -(W / 4 - 0.3), lowHt + upH / 2, D / 2 + 0.4); // 유리 도어 2짝
+      box(W / 2 - 1, upH, 0.8, glass,  (W / 4 - 0.3), lowHt + upH / 2, D / 2 + 0.4);
+      box(1.2, upH * 0.5, 1.2, silver, -2, lowHt + upH / 2, D / 2 + 1.2); // 알루미늄 손잡이
+      box(1.2, upH * 0.5, 1.2, silver,  2, lowHt + upH / 2, D / 2 + 1.2);
+      break;
+    }
+    case 'ikeaDesk': { // IKEA MICKE: 상판 + 우측 판다리 + 좌측 서랍 유닛
+      const white = mat(0xf7f5f0, 0.55), white2 = mat(0xfcfbf8, 0.55);
+      box(W, 4, D, white, 0, H - 2, 0);                               // 상판
+      box(4, H - 4, D, white, (W - 4) / 2, (H - 4) / 2, 0);           // 우측 판다리
+      const uw = Math.min(38, W * 0.4), ux = -(W - uw) / 2, fz = D / 2 + 0.6;
+      box(uw, H - 4, D, white, ux, (H - 4) / 2, 0);                   // 좌측 유닛
+      box(uw - 3, 13, 1.2, white2, ux, H - 12, fz);                   // 서랍
+      box(uw - 3, H - 24, 1.2, white2, ux, (H - 24) / 2 + 2, fz);     // 수납 도어
+      box(W - uw - 4, 8, 2, white, (uw + 4) / 2 - 2, H - 10, -D / 2 + 1); // 뒤 보강대
       break;
     }
     default: return null;
