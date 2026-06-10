@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>가구 배치 플로어플래너</title>
+<style>
+  :root {
+    --bg: #1e2127;
+    --panel: #282c34;
+    --panel2: #2f343e;
+    --border: #3d4350;
+    --text: #e6e6e6;
+    --muted: #9aa0ac;
+    --accent: #4f8cff;
+    --danger: #e06c75;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  /* ---------- 사이드바 ---------- */
+  #sidebar {
+    width: 300px;
+    min-width: 300px;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 12px;
+  }
+  #sidebar h1 { font-size: 16px; margin: 4px 0 12px; }
+  #sidebar h1 small { color: var(--muted); font-weight: normal; font-size: 11px; }
+  details {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 0;
+  }
+  details > summary {
+    cursor: pointer;
+    padding: 8px 10px;
+    font-weight: 600;
+    font-size: 13px;
+    user-select: none;
+  }
+  details > .body { padding: 4px 10px 10px; }
+
+  .palette-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 4px 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: grab;
+    font-size: 12px;
+    touch-action: none;
+  }
+  .palette-item:active { cursor: grabbing; }
+  .palette-item .swatch {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  }
+  .palette-item .dims { color: var(--muted); margin-left: auto; font-size: 11px; }
+  .palette-empty { color: var(--muted); font-size: 12px; padding: 4px; }
+
+  .row { display: flex; gap: 6px; margin: 4px 0; align-items: center; }
+  .row label { font-size: 11px; color: var(--muted); width: 34px; flex-shrink: 0; }
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+  }
+  input[type="color"] {
+    width: 36px; height: 26px; padding: 0; border: 1px solid var(--border);
+    background: var(--bg); border-radius: 4px;
+  }
+  button {
+    white-space: nowrap;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button.small { padding: 2px 7px; font-size: 11px; }
+
+  .list-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+    padding: 4px 6px;
+    margin: 3px 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+  }
+  .list-item .dims { color: var(--muted); font-size: 11px; }
+  .list-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #saveStatus { font-size: 11px; color: var(--muted); margin: 6px 0; }
+
+  /* ---------- 메인 ---------- */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  #toolbar .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #viewport { flex: 1; position: relative; min-height: 0; }
+  #view2d, #view3d { position: absolute; inset: 0; }
+  #view3d { display: none; }
+  svg#plan { width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* SVG 요소 */
+  .room-rect { fill: #21252c; stroke: #aab2c0; stroke-width: 6; }
+  .grid-line { stroke: #3a4150; stroke-width: 1; }
+  .grid-line.major { stroke: #475068; }
+  .room-label { fill: #8a93a5; font-size: 22px; font-weight: 600; pointer-events: none; }
+  .room-size-label { fill: #5d6678; font-size: 15px; pointer-events: none; }
+  .furn rect { stroke: rgba(0,0,0,.55); stroke-width: 2; rx: 4; }
+  .furn { cursor: grab; }
+  .furn.selected rect.body-rect { stroke: #fff; stroke-width: 3; stroke-dasharray: 8 5; }
+  .furn text {
+    fill: #11131a; font-size: 14px; font-weight: 600;
+    pointer-events: none; user-select: none;
+  }
+  .ghost rect { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 7 5; }
+
+  /* 선택 정보 패널 */
+  #selPanel {
+    position: absolute; left: 12px; bottom: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  #view3dHint {
+    position: absolute; left: 12px; bottom: 12px;
+    color: var(--muted); font-size: 12px;
+    background: rgba(40,44,52,.8); padding: 6px 10px; border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <h1>🏠 가구 배치 플래너 <small>단위: cm · 그리드 50cm</small></h1>
+
+  <details open>
+    <summary>가구 팔레트 (미배치)</summary>
+    <div class="body" id="palette"></div>
+  </details>
+
+  <details>
+    <summary>가구 목록 / 편집</summary>
+    <div class="body">
+      <div id="furnList"></div>
+      <hr style="border-color: var(--border); border-style: solid; border-width: 1px 0 0;">
+      <div class="row"><label>이름</label><input type="text" id="fName" placeholder="예: 퀸침대"></div>
+      <div class="row"><label>가로</label><input type="number" id="fW" min="1"><label>세로</label><input type="number" id="fD" min="1"></div>
+      <div class="row"><label>높이</label><input type="number" id="fH" min="1"><label>색</label><input type="color" id="fColor" value="#7fb3ff"></div>
+      <div class="row">
+        <button class="primary" id="fSaveBtn">추가</button>
+        <button id="fCancelBtn" style="display:none">취소</button>
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>방 목록 / 편집</summary>
+    <div class="body">
+      <div id="roomList"></div>
+      <hr style="border-color: var(--border); border-style: solid; border-width: 1px 0 0;">
+      <div class="row"><label>이름</label><input type="text" id="rName" placeholder="예: 거실"></div>
+      <div class="row"><label>위치X</label><input type="number" id="rX"><label>위치Y</label><input type="number" id="rY"></div>
+      <div class="row"><label>가로</label><input type="number" id="rW" min="50"><label>세로</label><input type="number" id="rH" min="50"></div>
+      <div class="row">
+        <button class="primary" id="rSaveBtn">추가</button>
+        <button id="rCancelBtn" style="display:none">취소</button>
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>세션 저장 / 불러오기</summary>
+    <div class="body">
+      <div id="saveStatus">자동저장 대기 중…</div>
+      <div class="row">
+        <input type="text" id="sessionName" placeholder="세션 이름">
+        <button class="primary" id="sessionSaveBtn">저장</button>
+      </div>
+      <div id="sessionList"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="exportBtn">JSON 내보내기</button>
+        <button id="importBtn">가져오기</button>
+        <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+      </div>
+      <div class="row">
+        <button class="danger" id="resetBtn">예시 데이터로 초기화</button>
+      </div>
+    </div>
+  </details>
+</aside>
+
+<main id="main">
+  <div id="toolbar">
+    <button class="primary" id="toggleViewBtn">3D 보기</button>
+    <span class="hint" id="hintText">팔레트에서 가구를 끌어다 놓으세요 · 드래그: 이동 · R: 회전 · Delete: 배치 해제</span>
+  </div>
+  <div id="viewport">
+    <div id="view2d">
+      <svg id="plan" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="selPanel">
+        <strong id="selName"></strong>
+        <span id="selDims" style="color: var(--muted)"></span>
+        <button class="small" id="selRotateBtn">↻ 회전 (R)</button>
+        <button class="small danger" id="selUnplaceBtn">배치 해제 (Del)</button>
+      </div>
+    </div>
+    <div id="view3d">
+      <div id="view3dHint">드래그: 회전 · 휠: 줌 · 우클릭 드래그: 이동</div>
+    </div>
+  </div>
+</main>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+// Three.js는 3D 뷰를 처음 열 때만 동적 로드 — CDN이 안 되는 환경에서도 2D는 동작
+let THREE = null, OrbitControls = null;
+async function loadThree() {
+  if (THREE) return true;
+  try {
+    THREE = await import('three');
+    ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+    return true;
+  } catch (e) {
+    alert('3D 라이브러리(Three.js CDN)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+    return false;
+  }
+}
+
+const GRID = 50;          // 그리드 간격 (cm)
+const WALL_H = 240;       // 3D 벽 높이 (cm)
+const AUTOSAVE_KEY = 'floorplan-autosave';
+const SESSIONS_KEY = 'floorplan-sessions';
+
+/* ================= 상태 ================= */
+
+function defaultState() {
+  let id = 1;
+  const F = (name, w, d, h, color) =>
+    ({ id: 'f' + id++, name, w, d, h, color, x: 0, y: 0, rot: 0, placed: false });
+  return {
+    rooms: [
+      { id: 'r1', name: '거실',  x: 300, y: 0,   w: 500, h: 400 },
+      { id: 'r2', name: '안방',  x: 800, y: 0,   w: 350, h: 300 },
+      { id: 'r3', name: '방2',   x: 0,   y: 0,   w: 300, h: 250 },
+      { id: 'r4', name: '방3',   x: 0,   y: 250, w: 250, h: 250 },
+    ],
+    furniture: [
+      F('퀸침대', 160, 200, 45, '#7fb3ff'),
+      F('옷장',   200, 60, 220, '#c39bd3'),
+      F('책상',   140, 70,  75, '#f5b971'),
+      F('의자',    50, 50,  90, '#f7dc6f'),
+      F('책장',    80, 40, 180, '#a3d9a5'),
+      F('소파',   220, 90,  80, '#76d7c4'),
+      F('TV장',   180, 40,  50, '#e59866'),
+      F('식탁',   140, 80,  75, '#f1948a'),
+      F('냉장고',  90, 80, 180, '#aeb6bf'),
+      F('세탁기',  65, 65,  85, '#85c1e9'),
+    ],
+  };
+}
+
+let state = loadAutosave() || defaultState();
+let selectedId = null;        // 선택된 가구 id
+let editingFurnId = null;     // 폼에서 편집 중인 가구 id
+let editingRoomId = null;     // 폼에서 편집 중인 방 id
+
+/* ================= 저장 ================= */
+
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(state));
+    const t = new Date().toLocaleTimeString('ko-KR');
+    document.getElementById('saveStatus').textContent = `자동저장됨 · ${t}`;
+  }, 300);
+}
+
+function loadAutosave() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) return null;
+    return s;
+  } catch { return null; }
+}
+
+function getSessions() {
+  try { return JSON.parse(localStorage.getItem(SESSIONS_KEY)) || {}; }
+  catch { return {}; }
+}
+function setSessions(map) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(map));
+}
+
+/* ================= 좌표/스냅 유틸 ================= */
+
+// 회전을 반영한 실제 평면 footprint
+function footprint(f) {
+  return (f.rot % 180 === 0) ? { w: f.w, d: f.d } : { w: f.d, d: f.w };
+}
+
+function roomAt(cx, cy) {
+  return state.rooms.find(r => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) || null;
+}
+
+// 좌상단(x,y)·크기(fw,fd)의 가구를 방 원점 기준 50cm 그리드에 스냅하고 방 안으로 클램프
+function snapInRoom(room, x, y, fw, fd) {
+  let sx = room.x + Math.round((x - room.x) / GRID) * GRID;
+  let sy = room.y + Math.round((y - room.y) / GRID) * GRID;
+  sx = Math.min(Math.max(sx, room.x), Math.max(room.x, room.x + room.w - fw));
+  sy = Math.min(Math.max(sy, room.y), Math.max(room.y, room.y + room.h - fd));
+  return { x: sx, y: sy };
+}
+
+// 드래그 중 좌표 → 스냅 결과 (방 밖이면 null)
+function snapPosition(x, y, fw, fd) {
+  const room = roomAt(x + fw / 2, y + fd / 2);
+  if (!room) return null;
+  return { room, ...snapInRoom(room, x, y, fw, fd) };
+}
+
+function planBBox() {
+  const pad = 60;
+  const xs = state.rooms.map(r => r.x), ys = state.rooms.map(r => r.y);
+  const xe = state.rooms.map(r => r.x + r.w), ye = state.rooms.map(r => r.y + r.h);
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  const maxX = Math.max(...xe), maxY = Math.max(...ye);
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2,
+           cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+}
+
+/* ================= 2D SVG 렌더링 ================= */
+
+const svg = document.getElementById('plan');
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs = {}, parent = null) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function svgPoint(evt) {
+  const pt = new DOMPoint(evt.clientX, evt.clientY);
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function renderPlan() {
+  svg.innerHTML = '';
+  const bb = planBBox();
+  svg.setAttribute('viewBox', `${bb.x} ${bb.y} ${bb.w} ${bb.h}`);
+
+  // 방 + 그리드
+  for (const r of state.rooms) {
+    const g = el('g', {}, svg);
+    el('rect', { class: 'room-rect', x: r.x, y: r.y, width: r.w, height: r.h }, g);
+    for (let gx = GRID; gx < r.w; gx += GRID)
+      el('line', { class: 'grid-line' + (gx % 100 === 0 ? ' major' : ''),
+                   x1: r.x + gx, y1: r.y, x2: r.x + gx, y2: r.y + r.h }, g);
+    for (let gy = GRID; gy < r.h; gy += GRID)
+      el('line', { class: 'grid-line' + (gy % 100 === 0 ? ' major' : ''),
+                   x1: r.x, y1: r.y + gy, x2: r.x + r.w, y2: r.y + gy }, g);
+    el('text', { class: 'room-label', x: r.x + 12, y: r.y + 30 }, g).textContent = r.name;
+    el('text', { class: 'room-size-label', x: r.x + 12, y: r.y + 50 }, g).textContent = `${r.w}×${r.h}`;
+  }
+
+  // 배치된 가구
+  for (const f of state.furniture) {
+    if (!f.placed) continue;
+    drawFurniture(f);
+  }
+}
+
+function drawFurniture(f) {
+  const fp = footprint(f);
+  const g = el('g', { class: 'furn' + (f.id === selectedId ? ' selected' : ''), 'data-id': f.id }, svg);
+  el('rect', { class: 'body-rect', x: f.x, y: f.y, width: fp.w, height: fp.d, fill: f.color, rx: 4 }, g);
+  // 방향 표시(앞면): 회전 기준 아래쪽 변에 짧은 선
+  const t = el('text', { x: f.x + fp.w / 2, y: f.y + fp.d / 2 + 5, 'text-anchor': 'middle' }, g);
+  t.textContent = f.name;
+  g.addEventListener('pointerdown', evt => startDragPlaced(evt, f.id));
+  return g;
+}
+
+/* ================= 드래그 앤 드롭 ================= */
+
+let drag = null; // { id, offX, offY, fromPalette, ghostEl, moved }
+
+function startDragPlaced(evt, id) {
+  evt.preventDefault();
+  const f = state.furniture.find(x => x.id === id);
+  if (!f) return;
+  selectFurniture(id);
+  const p = svgPoint(evt);
+  drag = { id, offX: p.x - f.x, offY: p.y - f.y, fromPalette: false, moved: false };
+  svg.setPointerCapture(evt.pointerId);
+}
+
+function startDragFromPalette(evt, id) {
+  evt.preventDefault();
+  drag = { id, offX: 0, offY: 0, fromPalette: true, moved: false };
+  // 팔레트에서 시작한 드래그는 document 레벨로 추적
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerUp, { once: true });
+}
+
+function onPointerMove(evt) {
+  if (!drag) return;
+  const f = state.furniture.find(x => x.id === drag.id);
+  if (!f) return;
+  drag.moved = true;
+  const p = svgPoint(evt);
+  const fp = footprint(f);
+
+  if (drag.fromPalette) {
+    // 팔레트 드래그: 포인터를 가구 중심으로
+    drag.offX = fp.w / 2;
+    drag.offY = fp.d / 2;
+  }
+  const rawX = p.x - drag.offX, rawY = p.y - drag.offY;
+  const snap = snapPosition(rawX, rawY, fp.w, fp.d);
+
+  // 고스트(스냅 프리뷰) 갱신
+  if (!drag.ghostEl) {
+    drag.ghostEl = el('g', { class: 'ghost' }, svg);
+    el('rect', {}, drag.ghostEl);
+  }
+  const gr = drag.ghostEl.firstChild;
+  const gx = snap ? snap.x : rawX, gy = snap ? snap.y : rawY;
+  gr.setAttribute('x', gx); gr.setAttribute('y', gy);
+  gr.setAttribute('width', fp.w); gr.setAttribute('height', fp.d);
+  gr.setAttribute('opacity', snap ? 1 : 0.4);
+
+  // 배치된 가구는 실시간으로 스냅 위치로 끌려감 (gravity)
+  if (!drag.fromPalette && snap) {
+    f.x = snap.x; f.y = snap.y;
+    updateFurnElement(f);
+  }
+  drag.lastSnap = snap;
+}
+
+function onPointerUp(evt) {
+  if (!drag) return;
+  const f = state.furniture.find(x => x.id === drag.id);
+  if (drag.ghostEl) drag.ghostEl.remove();
+
+  if (f && drag.moved) {
+    if (drag.lastSnap) {
+      f.x = drag.lastSnap.x;
+      f.y = drag.lastSnap.y;
+      f.placed = true;
+      selectFurniture(f.id);
+    } else if (!drag.fromPalette) {
+      // 평면도 밖으로 끌어내면 배치 해제
+      f.placed = false;
+      if (selectedId === f.id) selectFurniture(null);
+    }
+    commit();
+  }
+  document.removeEventListener('pointermove', onPointerMove);
+  drag = null;
+}
+
+svg.addEventListener('pointermove', onPointerMove);
+svg.addEventListener('pointerup', onPointerUp);
+svg.addEventListener('pointerdown', evt => {
+  // 빈 곳 클릭 시 선택 해제
+  if (evt.target === svg || evt.target.classList.contains('room-rect') ||
+      evt.target.classList.contains('grid-line')) selectFurniture(null);
+});
+
+function updateFurnElement(f) {
+  const g = svg.querySelector(`.furn[data-id="${f.id}"]`);
+  if (!g) return;
+  const fp = footprint(f);
+  const rect = g.querySelector('rect.body-rect');
+  rect.setAttribute('x', f.x); rect.setAttribute('y', f.y);
+  rect.setAttribute('width', fp.w); rect.setAttribute('height', fp.d);
+  const t = g.querySelector('text');
+  t.setAttribute('x', f.x + fp.w / 2); t.setAttribute('y', f.y + fp.d / 2 + 5);
+}
+
+/* ================= 선택 / 회전 / 배치 해제 ================= */
+
+function selectFurniture(id) {
+  selectedId = id;
+  svg.querySelectorAll('.furn').forEach(g =>
+    g.classList.toggle('selected', g.dataset.id === id));
+  const panel = document.getElementById('selPanel');
+  const f = state.furniture.find(x => x.id === id);
+  if (f && f.placed) {
+    panel.style.display = 'flex';
+    document.getElementById('selName').textContent = f.name;
+    document.getElementById('selDims').textContent = `${f.w}×${f.d}×${f.h} · ${f.rot}°`;
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function rotateSelected() {
+  const f = state.furniture.find(x => x.id === selectedId);
+  if (!f || !f.placed) return;
+  f.rot = (f.rot + 90) % 360;
+  // 회전 후에도 방 안에 머물도록 재스냅
+  const fp = footprint(f);
+  const room = roomAt(f.x + fp.w / 2, f.y + fp.d / 2) || roomAt(f.x + 1, f.y + 1);
+  if (room) {
+    const s = snapInRoom(room, f.x, f.y, fp.w, fp.d);
+    f.x = s.x; f.y = s.y;
+  }
+  commit();
+  selectFurniture(f.id);
+}
+
+function unplaceSelected() {
+  const f = state.furniture.find(x => x.id === selectedId);
+  if (!f || !f.placed) return;
+  f.placed = false;
+  selectFurniture(null);
+  commit();
+}
+
+document.getElementById('selRotateBtn').addEventListener('click', rotateSelected);
+document.getElementById('selUnplaceBtn').addEventListener('click', unplaceSelected);
+
+document.addEventListener('keydown', evt => {
+  if (evt.target.tagName === 'INPUT') return;
+  if (evt.key === 'r' || evt.key === 'R') rotateSelected();
+  if (evt.key === 'Delete' || evt.key === 'Backspace') unplaceSelected();
+});
+
+/* ================= 팔레트 / 목록 UI ================= */
+
+function renderPalette() {
+  const box = document.getElementById('palette');
+  box.innerHTML = '';
+  const unplaced = state.furniture.filter(f => !f.placed);
+  if (unplaced.length === 0) {
+    box.innerHTML = '<div class="palette-empty">모든 가구가 배치되었습니다 🎉</div>';
+    return;
+  }
+  for (const f of unplaced) {
+    const item = document.createElement('div');
+    item.className = 'palette-item';
+    item.innerHTML = `<span class="swatch" style="background:${f.color}"></span>
+      <span>${f.name}</span><span class="dims">${f.w}×${f.d}</span>`;
+    item.addEventListener('pointerdown', evt => startDragFromPalette(evt, f.id));
+    box.appendChild(item);
+  }
+}
+
+function renderFurnList() {
+  const box = document.getElementById('furnList');
+  box.innerHTML = '';
+  for (const f of state.furniture) {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    item.innerHTML = `<span class="swatch" style="background:${f.color};width:12px;height:12px;border-radius:3px;flex-shrink:0"></span>
+      <span class="grow">${f.name}${f.placed ? ' <span style="color:var(--accent)">●</span>' : ''}</span>
+      <span class="dims">${f.w}×${f.d}×${f.h}</span>`;
+    const editBtn = document.createElement('button');
+    editBtn.className = 'small'; editBtn.textContent = '✎';
+    editBtn.addEventListener('click', () => {
+      editingFurnId = f.id;
+      document.getElementById('fName').value = f.name;
+      document.getElementById('fW').value = f.w;
+      document.getElementById('fD').value = f.d;
+      document.getElementById('fH').value = f.h;
+      document.getElementById('fColor').value = f.color;
+      document.getElementById('fSaveBtn').textContent = '수정';
+      document.getElementById('fCancelBtn').style.display = '';
+    });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'small danger'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', () => {
+      state.furniture = state.furniture.filter(x => x.id !== f.id);
+      if (selectedId === f.id) selectFurniture(null);
+      if (editingFurnId === f.id) resetFurnForm();
+      commit();
+    });
+    item.append(editBtn, delBtn);
+    box.appendChild(item);
+  }
+}
+
+function resetFurnForm() {
+  editingFurnId = null;
+  ['fName', 'fW', 'fD', 'fH'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fSaveBtn').textContent = '추가';
+  document.getElementById('fCancelBtn').style.display = 'none';
+}
+
+document.getElementById('fSaveBtn').addEventListener('click', () => {
+  const name = document.getElementById('fName').value.trim();
+  const w = +document.getElementById('fW').value;
+  const d = +document.getElementById('fD').value;
+  const h = +document.getElementById('fH').value;
+  const color = document.getElementById('fColor').value;
+  if (!name || !(w > 0) || !(d > 0) || !(h > 0)) { alert('이름과 가로/세로/높이를 입력하세요.'); return; }
+  if (editingFurnId) {
+    const f = state.furniture.find(x => x.id === editingFurnId);
+    Object.assign(f, { name, w, d, h, color });
+  } else {
+    state.furniture.push({ id: 'f' + Date.now(), name, w, d, h, color, x: 0, y: 0, rot: 0, placed: false });
+  }
+  resetFurnForm();
+  commit();
+});
+document.getElementById('fCancelBtn').addEventListener('click', resetFurnForm);
+
+function renderRoomList() {
+  const box = document.getElementById('roomList');
+  box.innerHTML = '';
+  for (const r of state.rooms) {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    item.innerHTML = `<span class="grow">${r.name}</span>
+      <span class="dims">${r.w}×${r.h} @(${r.x},${r.y})</span>`;
+    const editBtn = document.createElement('button');
+    editBtn.className = 'small'; editBtn.textContent = '✎';
+    editBtn.addEventListener('click', () => {
+      editingRoomId = r.id;
+      document.getElementById('rName').value = r.name;
+      document.getElementById('rX').value = r.x;
+      document.getElementById('rY').value = r.y;
+      document.getElementById('rW').value = r.w;
+      document.getElementById('rH').value = r.h;
+      document.getElementById('rSaveBtn').textContent = '수정';
+      document.getElementById('rCancelBtn').style.display = '';
+    });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'small danger'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', () => {
+      if (state.rooms.length <= 1) { alert('방은 최소 1개 필요합니다.'); return; }
+      state.rooms = state.rooms.filter(x => x.id !== r.id);
+      // 그 방에 있던 가구는 배치 해제
+      for (const f of state.furniture) {
+        if (!f.placed) continue;
+        const fp = footprint(f);
+        if (!roomAt(f.x + fp.w / 2, f.y + fp.d / 2)) f.placed = false;
+      }
+      if (editingRoomId === r.id) resetRoomForm();
+      commit();
+    });
+    item.append(editBtn, delBtn);
+    box.appendChild(item);
+  }
+}
+
+function resetRoomForm() {
+  editingRoomId = null;
+  ['rName', 'rX', 'rY', 'rW', 'rH'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('rSaveBtn').textContent = '추가';
+  document.getElementById('rCancelBtn').style.display = 'none';
+}
+
+document.getElementById('rSaveBtn').addEventListener('click', () => {
+  const name = document.getElementById('rName').value.trim();
+  const x = +document.getElementById('rX').value || 0;
+  const y = +document.getElementById('rY').value || 0;
+  const w = +document.getElementById('rW').value;
+  const h = +document.getElementById('rH').value;
+  if (!name || !(w >= 50) || !(h >= 50)) { alert('이름과 50 이상의 가로/세로를 입력하세요.'); return; }
+  if (editingRoomId) {
+    const r = state.rooms.find(rr => rr.id === editingRoomId);
+    Object.assign(r, { name, x, y, w, h });
+    // 방이 줄어들어 밖으로 나간 가구는 배치 해제
+    for (const f of state.furniture) {
+      if (!f.placed) continue;
+      const fp = footprint(f);
+      if (!roomAt(f.x + fp.w / 2, f.y + fp.d / 2)) f.placed = false;
+    }
+  } else {
+    state.rooms.push({ id: 'r' + Date.now(), name, x, y, w, h });
+  }
+  resetRoomForm();
+  commit();
+});
+document.getElementById('rCancelBtn').addEventListener('click', resetRoomForm);
+
+/* ================= 세션 ================= */
+
+function renderSessions() {
+  const box = document.getElementById('sessionList');
+  box.innerHTML = '';
+  const sessions = getSessions();
+  const names = Object.keys(sessions).sort();
+  if (names.length === 0) {
+    box.innerHTML = '<div class="palette-empty">저장된 세션이 없습니다.</div>';
+    return;
+  }
+  for (const name of names) {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    item.innerHTML = `<span class="grow">${name}</span>
+      <span class="dims">${new Date(sessions[name].savedAt).toLocaleString('ko-KR')}</span>`;
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'small'; loadBtn.textContent = '열기';
+    loadBtn.addEventListener('click', () => {
+      state = JSON.parse(JSON.stringify(sessions[name].state));
+      selectFurniture(null);
+      commit();
+    });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'small danger'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', () => {
+      delete sessions[name];
+      setSessions(sessions);
+      renderSessions();
+    });
+    item.append(loadBtn, delBtn);
+    box.appendChild(item);
+  }
+}
+
+document.getElementById('sessionSaveBtn').addEventListener('click', () => {
+  const name = document.getElementById('sessionName').value.trim();
+  if (!name) { alert('세션 이름을 입력하세요.'); return; }
+  const sessions = getSessions();
+  sessions[name] = { savedAt: Date.now(), state: JSON.parse(JSON.stringify(state)) };
+  setSessions(sessions);
+  document.getElementById('sessionName').value = '';
+  renderSessions();
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `floorplan-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('importBtn').addEventListener('click', () =>
+  document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', evt => {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const s = JSON.parse(reader.result);
+      if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) throw new Error();
+      state = s;
+      selectFurniture(null);
+      commit();
+    } catch { alert('올바른 플로어플랜 JSON 파일이 아닙니다.'); }
+  };
+  reader.readAsText(file);
+  evt.target.value = '';
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('현재 배치를 버리고 예시 데이터로 초기화할까요?')) return;
+  state = defaultState();
+  selectFurniture(null);
+  commit();
+});
+
+/* ================= 3D 뷰 (Three.js) ================= */
+
+let three = null; // { renderer, scene, camera, controls, group }
+let is3D = false;
+
+function initThree() {
+  const container = document.getElementById('view3d');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1e2127);
+
+  const camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI / 2 - 0.02;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(500, 900, 400);
+  scene.add(dir);
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  three = { renderer, scene, camera, controls, group, container };
+
+  function resize() {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (w === 0 || h === 0) return;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  three.resize = resize;
+
+  (function animate() {
+    requestAnimationFrame(animate);
+    if (!is3D) return;
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+}
+
+function makeLabelSprite(text) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const font = 'bold 36px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  ctx.font = font;
+  const tw = Math.ceil(ctx.measureText(text).width);
+  canvas.width = tw + 28; canvas.height = 56;
+  ctx.font = font;
+  ctx.fillStyle = 'rgba(20,22,28,0.75)';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, canvas.width, canvas.height, 12);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 14, canvas.height / 2 + 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  sprite.scale.set(canvas.width * 0.7, canvas.height * 0.7, 1);
+  return sprite;
+}
+
+function build3D() {
+  const { group, camera, controls } = three;
+  // 기존 오브젝트 정리
+  while (group.children.length) {
+    const c = group.children.pop();
+    c.traverse?.(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+  }
+
+  const bb = planBBox();
+  const ox = bb.cx, oz = bb.cy; // 평면도 중심을 3D 원점으로
+
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xb8a98e, roughness: 0.9 });
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0xdde3ee, transparent: true, opacity: 0.22,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const gridMat = new THREE.LineBasicMaterial({ color: 0x8d8064, transparent: true, opacity: 0.5 });
+  const WALL_T = 8, FLOOR_T = 10;
+
+  for (const r of state.rooms) {
+    const cx = r.x + r.w / 2 - ox, cz = r.y + r.h / 2 - oz;
+    // 바닥
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w, FLOOR_T, r.h), floorMat);
+    floor.position.set(cx, -FLOOR_T / 2, cz);
+    group.add(floor);
+    // 바닥 위 50cm 그리드
+    const pts = [];
+    for (let gx = 0; gx <= r.w; gx += GRID)
+      pts.push(new THREE.Vector3(r.x + gx - ox, 0.5, r.y - oz),
+               new THREE.Vector3(r.x + gx - ox, 0.5, r.y + r.h - oz));
+    for (let gy = 0; gy <= r.h; gy += GRID)
+      pts.push(new THREE.Vector3(r.x - ox, 0.5, r.y + gy - oz),
+               new THREE.Vector3(r.x + r.w - ox, 0.5, r.y + gy - oz));
+    group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+    // 벽 4면 (반투명)
+    const walls = [
+      { w: r.w + WALL_T, d: WALL_T, x: cx, z: r.y - oz },           // 북
+      { w: r.w + WALL_T, d: WALL_T, x: cx, z: r.y + r.h - oz },     // 남
+      { w: WALL_T, d: r.h + WALL_T, x: r.x - ox, z: cz },           // 서
+      { w: WALL_T, d: r.h + WALL_T, x: r.x + r.w - ox, z: cz },     // 동
+    ];
+    for (const wd of walls) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(wd.w, WALL_H, wd.d), wallMat);
+      wall.position.set(wd.x, WALL_H / 2, wd.z);
+      group.add(wall);
+    }
+    // 방 이름 라벨
+    const label = makeLabelSprite(r.name);
+    label.position.set(cx, WALL_H + 40, cz);
+    group.add(label);
+  }
+
+  for (const f of state.furniture) {
+    if (!f.placed) continue;
+    const fp = footprint(f);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(fp.w, f.h, fp.d),
+      new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 }),
+    );
+    const cx = f.x + fp.w / 2 - ox, cz = f.y + fp.d / 2 - oz;
+    mesh.position.set(cx, f.h / 2, cz);
+    group.add(mesh);
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(mesh.geometry),
+      new THREE.LineBasicMaterial({ color: 0x11131a, transparent: true, opacity: 0.5 }),
+    );
+    edges.position.copy(mesh.position);
+    group.add(edges);
+    const label = makeLabelSprite(f.name);
+    label.position.set(cx, f.h + 30, cz);
+    group.add(label);
+  }
+
+  const dist = Math.max(bb.w, bb.h) * 1.1;
+  camera.position.set(dist * 0.55, dist * 0.7, dist * 0.75);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+document.getElementById('toggleViewBtn').addEventListener('click', async () => {
+  if (!is3D && !(await loadThree())) return;
+  is3D = !is3D;
+  document.getElementById('view2d').style.display = is3D ? 'none' : 'block';
+  document.getElementById('view3d').style.display = is3D ? 'block' : 'none';
+  document.getElementById('toggleViewBtn').textContent = is3D ? '2D 평면도' : '3D 보기';
+  document.getElementById('hintText').style.visibility = is3D ? 'hidden' : '';
+  if (is3D) {
+    if (!three) initThree();
+    three.resize();
+    build3D();
+  }
+});
+
+/* ================= 커밋(상태 변경 → 렌더 + 저장) ================= */
+
+function commit() {
+  renderPlan();
+  renderPalette();
+  renderFurnList();
+  renderRoomList();
+  scheduleSave();
+  if (is3D && three) build3D();
+}
+
+renderPlan();
+renderPalette();
+renderFurnList();
+renderRoomList();
+renderSessions();
+</script>
+</body>
+</html>
