@@ -264,7 +264,8 @@
 <main id="main">
   <div id="toolbar">
     <button class="primary" id="toggleViewBtn">3D 보기</button>
-    <span class="hint" id="hintText">팔레트에서 가구를 끌어다 놓으세요 · 드래그: 이동 · R: 회전 · Delete: 배치 해제</span>
+    <button id="fitBtn">전체 보기</button>
+    <span class="hint" id="hintText">팔레트에서 가구를 끌어다 놓으세요 · 드래그: 이동 · R: 회전 · Delete: 배치 해제 · 휠/핀치: 줌</span>
   </div>
   <div id="viewport">
     <div id="view2d">
@@ -487,14 +488,46 @@ function el(tag, attrs = {}, parent = null) {
 }
 
 function svgPoint(evt) {
-  const pt = new DOMPoint(evt.clientX, evt.clientY);
-  return pt.matrixTransform(svg.getScreenCTM().inverse());
+  return svgPointXY(evt.clientX, evt.clientY);
 }
+function svgPointXY(cx, cy) {
+  return new DOMPoint(cx, cy).matrixTransform(svg.getScreenCTM().inverse());
+}
+
+/* ----- 2D 줌/팬 (핀치 + 휠 + 배경 드래그) ----- */
+let view = null; // 사용자 줌 상태 (viewBox), null = 전체 맞춤
+function currentVB() {
+  if (view) return { ...view };
+  const bb = planBBox();
+  return { x: bb.x, y: bb.y, w: bb.w, h: bb.h };
+}
+function applyViewBox() {
+  const vb = currentVB();
+  svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
+function clampW(w) {
+  const fw = planBBox().w;
+  return Math.min(Math.max(w, fw / 8), fw * 2); // 최대 8배 확대, 2배 축소
+}
+function zoomAtClient(cx, cy, factor) { // factor > 1 = 축소
+  const vb0 = currentVB();
+  const w = clampW(vb0.w * factor);
+  const p0 = svgPointXY(cx, cy);
+  view = { x: vb0.x, y: vb0.y, w, h: vb0.h * (w / vb0.w) };
+  applyViewBox();
+  const q = svgPointXY(cx, cy); // 포인터 아래 지점이 그대로 있도록 보정
+  view.x += p0.x - q.x;
+  view.y += p0.y - q.y;
+  applyViewBox();
+}
+document.getElementById('fitBtn').addEventListener('click', () => {
+  view = null;
+  applyViewBox();
+});
 
 function renderPlan() {
   svg.innerHTML = '';
-  const bb = planBBox();
-  svg.setAttribute('viewBox', `${bb.x} ${bb.y} ${bb.w} ${bb.h}`);
+  applyViewBox();
 
   const defs = el('defs', {}, svg);
 
@@ -642,12 +675,80 @@ function onPointerUp(evt) {
 
 svg.addEventListener('pointermove', onPointerMove);
 svg.addEventListener('pointerup', onPointerUp);
+const isBackground = t => t === svg || t.classList.contains('room-rect') ||
+  t.classList.contains('room-fill') || t.classList.contains('grid-line');
+
 svg.addEventListener('pointerdown', evt => {
   // 빈 곳 클릭 시 선택 해제
-  if (evt.target === svg || evt.target.classList.contains('room-rect') ||
-      evt.target.classList.contains('room-fill') ||
-      evt.target.classList.contains('grid-line')) selectFurniture(null);
+  if (isBackground(evt.target)) selectFurniture(null);
 });
+
+/* ----- 핀치 줌 / 배경 팬 ----- */
+const zoomPointers = new Map();
+let pinch = null, pan = null;
+
+svg.addEventListener('pointerdown', evt => {
+  zoomPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+  if (zoomPointers.size === 2) {
+    if (drag) { // 두 번째 손가락이 닿으면 가구 드래그를 멈추고 현재 위치 확정
+      drag.ghostEl?.remove();
+      const fromPalette = drag.fromPalette;
+      document.removeEventListener('pointermove', onPointerMove);
+      drag = null;
+      if (!fromPalette) commit();
+    }
+    pan = null;
+    const [a, b] = [...zoomPointers.values()];
+    pinch = {
+      d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      p0: svgPointXY((a.x + b.x) / 2, (a.y + b.y) / 2),
+      vb0: currentVB(),
+    };
+  } else if (zoomPointers.size === 1 && isBackground(evt.target)) {
+    pan = { px: evt.clientX, py: evt.clientY };
+    svg.setPointerCapture(evt.pointerId);
+  }
+});
+
+svg.addEventListener('pointermove', evt => {
+  if (zoomPointers.has(evt.pointerId))
+    zoomPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+  if (pinch && zoomPointers.size >= 2) {
+    const [a, b] = [...zoomPointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const w = clampW(pinch.vb0.w * (pinch.d0 / d));
+    view = { x: pinch.vb0.x, y: pinch.vb0.y, w, h: pinch.vb0.h * (w / pinch.vb0.w) };
+    applyViewBox();
+    const q = svgPointXY((a.x + b.x) / 2, (a.y + b.y) / 2); // 시작 지점이 손가락 중점을 따라오도록
+    view.x += pinch.p0.x - q.x;
+    view.y += pinch.p0.y - q.y;
+    applyViewBox();
+  } else if (pan && !drag) {
+    const p0 = svgPointXY(pan.px, pan.py);
+    const p1 = svgPointXY(evt.clientX, evt.clientY);
+    view = currentVB();
+    view.x += p0.x - p1.x;
+    view.y += p0.y - p1.y;
+    pan.px = evt.clientX; pan.py = evt.clientY;
+    applyViewBox();
+  }
+});
+
+const endZoomPointer = evt => {
+  zoomPointers.delete(evt.pointerId);
+  if (zoomPointers.size < 2) pinch = null;
+  if (zoomPointers.size === 0) pan = null;
+};
+svg.addEventListener('pointerup', endZoomPointer);
+svg.addEventListener('pointercancel', endZoomPointer);
+svg.addEventListener('pointerleave', endZoomPointer);
+
+// 휠 줌 (트랙패드 핀치는 ctrlKey+wheel로 들어옴)
+svg.addEventListener('wheel', evt => {
+  evt.preventDefault();
+  const factor = Math.exp(evt.deltaY * (evt.ctrlKey ? 0.012 : 0.0018));
+  zoomAtClient(evt.clientX, evt.clientY, factor);
+}, { passive: false });
 
 function updateFurnElement(f) {
   const g = svg.querySelector(`.furn[data-id="${f.id}"]`);
@@ -1296,6 +1397,7 @@ document.getElementById('toggleViewBtn').addEventListener('click', async () => {
   document.getElementById('view2d').style.display = is3D ? 'none' : 'block';
   document.getElementById('view3d').style.display = is3D ? 'block' : 'none';
   document.getElementById('toggleViewBtn').textContent = is3D ? '2D 평면도' : '3D 보기';
+  document.getElementById('fitBtn').style.display = is3D ? 'none' : '';
   document.getElementById('hintText').style.visibility = is3D ? 'hidden' : '';
   if (is3D) {
     if (!three) initThree();
