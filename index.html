@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>가구 배치 플로어플래너</title>
 <style>
   :root {
@@ -16,7 +16,7 @@
     --danger: #e06c75;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  html, body { height: 100%; margin: 0; overscroll-behavior: none; }
   body {
     display: flex;
     font-family: "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
@@ -310,6 +310,7 @@
         <strong id="selName"></strong>
         <span id="selDims" style="color: var(--muted)"></span>
         <button class="small" id="selRotateBtn">↻ 회전 (R)</button>
+        <button class="small" id="selCopyBtn">⧉ 복제</button>
         <button class="small danger" id="selUnplaceBtn">배치 해제 (Del)</button>
       </div>
     </div>
@@ -572,23 +573,60 @@ function snapPosition(x, y, fw, fd) {
   return { room, ...snapInRoom(room, x, y, fw, fd) };
 }
 
+// 방의 배치 불가 영역 + 배치된 비고정 가구 풋프린트
+function roomBlocks(room, exceptId) {
+  const blocks = blockedRects(room, exceptId);
+  for (const o of state.furniture) {
+    if (!o.placed || o.fixed || o.id === exceptId) continue;
+    const op = footprint(o);
+    blocks.push({ x: o.x, y: o.y, w: op.w, h: op.d });
+  }
+  return blocks;
+}
+
 // 팔레트 탭 배치: 큰 방부터 50cm 그리드를 훑어 빈 자리를 찾음
 function findFreeSpot(fw, fd) {
   const rooms = state.rooms.filter(r => r.type === 'room')
     .sort((a, b) => b.w * b.h - a.w * a.h);
   for (const room of rooms) {
-    const blocks = blockedRects(room);
-    for (const o of state.furniture) {
-      if (!o.placed || o.fixed) continue;
-      const op = footprint(o);
-      blocks.push({ x: o.x, y: o.y, w: op.w, h: op.d });
-    }
+    const blocks = roomBlocks(room);
     for (let y = room.y; y + fd <= room.y + room.h + 0.5; y += GRID)
       for (let x = room.x; x + fw <= room.x + room.w + 0.5; x += GRID)
         if (!blocks.some(b => rectsOverlap(x, y, fw, fd, b)))
           return { x, y };
   }
   return null;
+}
+
+// 복제: 원본과 같은 방에서 가까운 빈 자리부터, 없으면 전체 탐색
+function freeSpotNear(src, fw, fd) {
+  const sp = footprint(src);
+  const room = roomAt(src.x + sp.w / 2, src.y + sp.d / 2);
+  if (room) {
+    const blocks = roomBlocks(room);
+    for (let d = 1; d <= 8; d++)
+      for (const [x, y] of [[src.x + d * GRID, src.y], [src.x, src.y + d * GRID],
+                            [src.x - d * GRID, src.y], [src.x, src.y - d * GRID]])
+        if (x >= room.x && y >= room.y &&
+            x + fw <= room.x + room.w && y + fd <= room.y + room.h &&
+            !blocks.some(b => rectsOverlap(x, y, fw, fd, b)))
+          return { x, y };
+  }
+  return findFreeSpot(fw, fd);
+}
+
+function duplicateFurniture(id) {
+  const src = state.furniture.find(x => x.id === id);
+  if (!src) return;
+  const copy = { ...src, id: 'f' + Date.now(), fixed: false, placed: false };
+  if (src.placed) {
+    const fp = footprint(copy);
+    const spot = freeSpotNear(src, fp.w, fp.d);
+    if (spot) { copy.x = spot.x; copy.y = spot.y; copy.placed = true; }
+  }
+  state.furniture.push(copy);
+  commit();
+  if (copy.placed) selectFurniture(copy.id);
 }
 
 function placeFromPalette(id) {
@@ -663,6 +701,28 @@ function zoomAtClient(cx, cy, factor) { // factor > 1 = 축소
 document.getElementById('fitBtn').addEventListener('click', () => {
   view = null;
   applyViewBox();
+});
+
+/* ----- 트리플 탭: 전체 보기 리셋 (모바일에서 길 잃었을 때) ----- */
+let tapStart = null, tapTimes = [];
+svg.addEventListener('pointerdown', evt => {
+  tapStart = { x: evt.clientX, y: evt.clientY, t: Date.now() };
+});
+svg.addEventListener('pointerup', evt => {
+  if (!tapStart) return;
+  const isTap = Date.now() - tapStart.t < 400 &&
+    Math.hypot(evt.clientX - tapStart.x, evt.clientY - tapStart.y) < 12;
+  tapStart = null;
+  if (!isTap) { tapTimes = []; return; }
+  const now = Date.now();
+  if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 600) tapTimes = [];
+  tapTimes.push(now);
+  if (tapTimes.length >= 3) {
+    tapTimes = [];
+    view = null;
+    applyViewBox();
+    window.scrollTo(0, 0);
+  }
 });
 
 function renderPlan() {
@@ -969,6 +1029,7 @@ function unplaceSelected() {
 }
 
 document.getElementById('selRotateBtn').addEventListener('click', rotateSelected);
+document.getElementById('selCopyBtn').addEventListener('click', () => duplicateFurniture(selectedId));
 document.getElementById('selUnplaceBtn').addEventListener('click', unplaceSelected);
 
 document.addEventListener('keydown', evt => {
@@ -1025,6 +1086,10 @@ function renderFurnList() {
       document.getElementById('fSaveBtn').textContent = '수정';
       document.getElementById('fCancelBtn').style.display = '';
     });
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'small'; copyBtn.textContent = '⧉';
+    copyBtn.title = '복제';
+    copyBtn.addEventListener('click', () => duplicateFurniture(f.id));
     const delBtn = document.createElement('button');
     delBtn.className = 'small danger'; delBtn.textContent = '✕';
     delBtn.addEventListener('click', () => {
@@ -1033,7 +1098,7 @@ function renderFurnList() {
       if (editingFurnId === f.id) resetFurnForm();
       commit();
     });
-    item.append(editBtn, delBtn);
+    item.append(editBtn, copyBtn, delBtn);
     box.appendChild(item);
   }
 }
