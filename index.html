@@ -301,7 +301,7 @@
     <button id="sidebarToggleBtn" title="팔레트 접기/펼치기">◀</button>
     <button class="primary" id="toggleViewBtn">3D 보기</button>
     <button id="fitBtn">전체 보기</button>
-    <span class="hint" id="hintText">팔레트에서 가구를 끌어다 놓으세요 · 드래그: 이동 · R: 회전 · Delete: 배치 해제 · 휠/핀치: 줌</span>
+    <span class="hint" id="hintText">팔레트의 가구를 누르면 빈 자리에 배치됩니다 · 드래그: 이동 · R: 회전 · Delete: 배치 해제 · 휠/핀치: 줌</span>
   </div>
   <div id="viewport">
     <div id="view2d">
@@ -572,6 +572,39 @@ function snapPosition(x, y, fw, fd) {
   return { room, ...snapInRoom(room, x, y, fw, fd) };
 }
 
+// 팔레트 탭 배치: 큰 방부터 50cm 그리드를 훑어 빈 자리를 찾음
+function findFreeSpot(fw, fd) {
+  const rooms = state.rooms.filter(r => r.type === 'room')
+    .sort((a, b) => b.w * b.h - a.w * a.h);
+  for (const room of rooms) {
+    const blocks = blockedRects(room);
+    for (const o of state.furniture) {
+      if (!o.placed || o.fixed) continue;
+      const op = footprint(o);
+      blocks.push({ x: o.x, y: o.y, w: op.w, h: op.d });
+    }
+    for (let y = room.y; y + fd <= room.y + room.h + 0.5; y += GRID)
+      for (let x = room.x; x + fw <= room.x + room.w + 0.5; x += GRID)
+        if (!blocks.some(b => rectsOverlap(x, y, fw, fd, b)))
+          return { x, y };
+  }
+  return null;
+}
+
+function placeFromPalette(id) {
+  const f = state.furniture.find(x => x.id === id);
+  if (!f || f.placed) return;
+  const fp = footprint(f);
+  const spot = findFreeSpot(fp.w, fp.d);
+  if (!spot) {
+    alert('빈 공간이 없습니다. 배치된 가구를 옮기거나 회전한 뒤 다시 시도하세요.');
+    return;
+  }
+  f.x = spot.x; f.y = spot.y; f.placed = true;
+  selectFurniture(f.id);
+  commit();
+}
+
 function planBBox() {
   const pad = 60;
   const xs = state.rooms.map(r => r.x), ys = state.rooms.map(r => r.y);
@@ -746,14 +779,6 @@ function startDragPlaced(evt, id) {
   svg.setPointerCapture(evt.pointerId);
 }
 
-function startDragFromPalette(evt, id) {
-  evt.preventDefault();
-  drag = { id, offX: 0, offY: 0, fromPalette: true, moved: false };
-  // 팔레트에서 시작한 드래그는 document 레벨로 추적
-  document.addEventListener('pointermove', onPointerMove);
-  document.addEventListener('pointerup', onPointerUp, { once: true });
-}
-
 function onPointerMove(evt) {
   if (!drag) return;
   const f = state.furniture.find(x => x.id === drag.id);
@@ -761,12 +786,6 @@ function onPointerMove(evt) {
   drag.moved = true;
   const p = svgPoint(evt);
   const fp = footprint(f);
-
-  if (drag.fromPalette) {
-    // 팔레트 드래그: 포인터를 가구 중심으로
-    drag.offX = fp.w / 2;
-    drag.offY = fp.d / 2;
-  }
   const rawX = p.x - drag.offX, rawY = p.y - drag.offY;
   const snap = snapPosition(rawX, rawY, fp.w, fp.d);
 
@@ -782,7 +801,7 @@ function onPointerMove(evt) {
   gr.setAttribute('opacity', snap ? 1 : 0.4);
 
   // 배치된 가구는 실시간으로 스냅 위치로 끌려감 (gravity)
-  if (!drag.fromPalette && snap) {
+  if (snap) {
     f.x = snap.x; f.y = snap.y;
     updateFurnElement(f);
   }
@@ -800,7 +819,7 @@ function onPointerUp(evt) {
       f.y = drag.lastSnap.y;
       f.placed = true;
       selectFurniture(f.id);
-    } else if (!drag.fromPalette) {
+    } else {
       // 평면도 밖으로 끌어내면 배치 해제
       f.placed = false;
       if (selectedId === f.id) selectFurniture(null);
@@ -975,7 +994,7 @@ function renderPalette() {
       ? `<img src="${f.img}" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:4px;flex-shrink:0">`
       : `<span class="swatch" style="background:${f.color}"></span>`;
     item.innerHTML = `${thumb}<span>${f.name}</span><span class="dims">${f.w}×${f.d}</span>`;
-    item.addEventListener('pointerdown', evt => startDragFromPalette(evt, f.id));
+    item.addEventListener('click', () => placeFromPalette(f.id));
     box.appendChild(item);
   }
 }
