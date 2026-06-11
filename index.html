@@ -136,6 +136,7 @@
   .room-rect { fill: none; stroke: #aab2c0; stroke-width: 6; stroke-linejoin: miter; }
   .zone-rect { fill: #262a31; stroke: #4a5260; stroke-width: 2; stroke-dasharray: 10 7; }
   .zone-label { fill: #6b7382; font-size: 16px; }
+  .pillar-rect { fill: #aab2c0; stroke: #8b93a1; stroke-width: 1.5; pointer-events: none; }
   .door-opening { stroke: #21252c; stroke-width: 9; pointer-events: none; }
   .door-leaf { stroke: #aab2c0; stroke-width: 4; stroke-linecap: round; pointer-events: none; }
   .door-swing {
@@ -334,7 +335,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 7;
+const STATE_VERSION = 8;
 
 function defaultState() {
   let id = 1;
@@ -347,14 +348,17 @@ function defaultState() {
     rooms: [
       // doors: wall(n/s/e/w) 기준 off(벽 시작에서 개구부까지), w(문폭), hinge(start/end)
       // windows: off/w + sill(바닥에서 창 하단), h(창 높이) — 사진 기준
+      // pillars: 발코니 확장 시 철거 불가한 내력벽/기둥 (절대좌표, 천장까지)
       { id: 'r1', name: '방1',  type: 'room', x: 196, y: 0,   w: 299, h: 417,
         doors:   [{ wall: 's', off: 5, w: 80, hinge: 'start' }],
-        windows: [{ wall: 'n', off: 50, w: 200, sill: 45, h: 165 }] },
+        windows: [{ wall: 'n', off: 50, w: 200, sill: 45, h: 165 }],
+        pillars: [{ x: 475, y: 0, w: 20, h: 150 }] },
       { id: 'r2', name: '방2',  type: 'room', x: 858, y: 0,   w: 476, h: 431,
         cut: { corner: 'ne', w: 150, h: 130 },
         doors:   [{ wall: 'w', off: 330, w: 80, hinge: 'end' }],
         windows: [{ wall: 'n', off: 60, w: 200, sill: 15, h: 195 },
-                  { wall: 'e', off: 180, w: 200, sill: 15, h: 195 }] },
+                  { wall: 'e', off: 180, w: 200, sill: 15, h: 195 }],
+        pillars: [{ x: 1184, y: 380, w: 150, h: 51 }] },
       { id: 'r3', name: '안방', type: 'room', x: 775, y: 573, w: 412, h: 386,
         doors:   [{ wall: 'n', off: 20, w: 80, hinge: 'start' }],
         // 사진 기준: 발코니 쪽(남) 허리높이 창, 동쪽(붙박이장 쪽)으로 치우침
@@ -485,6 +489,7 @@ function blockedRects(room, exceptId) {
   const c = cutRect(room);
   if (c) list.push(c);
   for (const d of room.doors || []) list.push(doorSwingRect(room, d));
+  for (const p of room.pillars || []) list.push(p);
   for (const f of state.furniture) {
     if (!f.placed || !f.fixed || f.id === exceptId) continue;
     const fp = footprint(f);
@@ -641,6 +646,10 @@ function renderPlan() {
       el('line', { class: 'grid-line' + (gy % 100 === 0 ? ' major' : ''),
                    x1: r.x, y1: r.y + gy, x2: r.x + r.w, y2: r.y + gy }, gridG);
     el('polygon', { class: 'room-rect', points: pts, fill: 'none' }, g);
+
+    // 내력벽/기둥: 벽과 같은 톤의 블록
+    for (const p of r.pillars || [])
+      el('rect', { class: 'pillar-rect', x: p.x, y: p.y, width: p.w, height: p.h }, g);
 
     // 창문: 벽 위에 하늘색 띠
     for (const wn of r.windows || []) {
@@ -1658,6 +1667,12 @@ function build3D() {
         cur = op.a2;
       }
       segBox(horizontal, pos, cur, hi, 0, WALL_H, wallMat);
+    }
+    // 내력벽/기둥: 천장까지 벽 블록
+    for (const p of r.pillars || []) {
+      const pm = new THREE.Mesh(new THREE.BoxGeometry(p.w, WALL_H, p.h), wallMat);
+      pm.position.set(p.x + p.w / 2 - ox, WALL_H / 2, p.y + p.h / 2 - oz);
+      group.add(pm);
     }
     // 모서리 기둥으로 벽 코너 마감
     for (const [vx, vy] of outline) {
