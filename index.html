@@ -334,7 +334,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 6;
+const STATE_VERSION = 7;
 
 function defaultState() {
   let id = 1;
@@ -357,8 +357,8 @@ function defaultState() {
                   { wall: 'e', off: 180, w: 200, sill: 15, h: 195 }] },
       { id: 'r3', name: '안방', type: 'room', x: 775, y: 573, w: 412, h: 386,
         doors:   [{ wall: 'n', off: 20, w: 80, hinge: 'start' }],
-        // 사진 기준: 발코니 쪽(남) 허리높이 창, 서쪽으로 치우침
-        windows: [{ wall: 's', off: 50, w: 230, sill: 85, h: 130 }] },
+        // 사진 기준: 발코니 쪽(남) 허리높이 창, 동쪽(붙박이장 쪽)으로 치우침
+        windows: [{ wall: 's', off: 120, w: 230, sill: 85, h: 130 }] }, // 동쪽 끝이 붙박이장 면(x=1127)에 맞닿음
       { id: 'r4', name: '거실', type: 'room', x: 302, y: 620, w: 474, h: 540,
         windows: [{ wall: 's', off: 30, w: 414, sill: 5, h: 215 }] },
       { id: 'z1', name: '현관',       type: 'zone', x: 30,   y: 420, w: 170, h: 200 },
