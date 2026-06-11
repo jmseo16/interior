@@ -232,6 +232,9 @@
           <option value="wardrobe">옷장 (도어+우드프레임)</option>
           <option value="bed">침대 (매트리스+헤드보드)</option>
           <option value="sofa">소파 (쿠션+팔걸이)</option>
+          <option value="cornerSofa">ㄴ자 소파 (카우치형)</option>
+          <option value="wallTv">벽걸이 TV (프레임)</option>
+          <option value="table">테이블 (우드 4다리)</option>
         </select>
       </div>
       <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">3D 모델 선택 시 사진보다 우선 적용됩니다. 사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
@@ -351,7 +354,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 11;
+const STATE_VERSION = 12;
 
 function defaultState() {
   let id = 1;
@@ -404,6 +407,13 @@ function defaultState() {
       // 안방 동쪽 벽 붙박이장: 고정 아티팩트 (사진 기준, 표준 깊이 60)
       { id: 'fix1', name: '붙박이장', w: 386, d: 60, h: 235, color: '#cfc9bd',
         model: 'builtinCloset', x: 1127, y: 573, rot: 90, placed: true, fixed: true },
+      // 거실: 98" 프레임 TV(동측 벽걸이, 217.8×124.8 공식 스펙) + ㄴ자 소파(서측) + 소파 테이블(소파 남측)
+      { id: 'tv98', name: '프레임 TV 98"', w: 218, d: 10, h: 125, color: '#23262e',
+        model: 'wallTv', x: 766, y: 670, rot: 90, placed: true },
+      { id: 'sofaL', name: 'ㄴ자 소파', w: 270, d: 168, h: 85, color: '#8a93a3',
+        model: 'cornerSofa', x: 302, y: 640, rot: 270, placed: true },
+      { id: 'sofaTbl', name: '소파 테이블', w: 120, d: 60, h: 46, color: '#b08968',
+        model: 'table', x: 330, y: 940, rot: 0, placed: true },
     ],
   };
 }
@@ -431,7 +441,14 @@ function loadAutosave() {
     if (!raw) return null;
     const s = JSON.parse(raw);
     if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) return null;
-    if (s.version !== STATE_VERSION) return null; // 구버전 예시 데이터는 새 평면도로 교체
+    if (s.version !== STATE_VERSION) {
+      // 구버전: 방 정의는 최신 기본값으로 교체하되, 가구 배치는 유지하고 새 기본 가구만 추가
+      const d = defaultState();
+      const names = new Set(s.furniture.map(f => f.name));
+      s.rooms = d.rooms;
+      s.furniture.push(...d.furniture.filter(f => !names.has(f.name)));
+      s.version = STATE_VERSION;
+    }
     return s;
   } catch { return null; }
 }
@@ -1492,6 +1509,42 @@ function makeModel(f) {
             -innerW / 2 + innerW / n * (i + 0.5), legH + seatH + cushT / 2, (backT - 4) / 2);
       for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
         box(5, legH, 5, legM, sx * (W / 2 - 9), legH / 2, sz * (D / 2 - 9));
+      break;
+    }
+    case 'wallTv': { // 벽걸이 프레임 TV: 베젤 + 매트 스크린 + 아트모드 그림, 벽면(-z)에 밀착해 띄움
+      const lift = Math.max(0, 190 - H); // 패널 상단 ~190cm
+      const frameM = mat(0x15171c, 0.5), screenM = mat(0x2b313d, 0.35), artM = mat(0x7d8d99, 0.9);
+      box(W, H, 3, frameM, 0, lift + H / 2, -D / 2 + 1.5);
+      box(W - 6, H - 6, 1.5, screenM, 0, lift + H / 2, -D / 2 + 3.2);
+      box(W * 0.62, H * 0.6, 0.8, artM, 0, lift + H / 2, -D / 2 + 4.2);
+      break;
+    }
+    case 'cornerSofa': { // ㄴ자 카우치 소파: 등받이(-z) + 본체 + 카우치(+x 끝, 앞으로 연장)
+      const fab = mat(base, 0.95), fabDark = mat(darker, 0.95), legM = mat(0x4a3b2a, 0.6);
+      const legH = 6, mainD = Math.min(95, D * 0.58), backT = 16, armW = 14;
+      const seatH = H * 0.42 - legH, cushT = H * 0.2;
+      const chW = Math.min(110, W * 0.4);
+      box(W, seatH, mainD, fabDark, 0, legH + seatH / 2, -(D - mainD) / 2);
+      box(chW, seatH, D - mainD, fabDark, (W - chW) / 2, legH + seatH / 2, mainD / 2);
+      const backH = H - legH;
+      box(W, backH, backT, fab, 0, legH + backH / 2, -(D - backT) / 2);
+      const armH = H * 0.78 - legH;
+      box(armW, armH, mainD, fabDark, -(W - armW) / 2, legH + armH / 2, -(D - mainD) / 2);
+      const innerW = W - armW, n = 3;
+      for (let i = 0; i < n; i++)
+        box(innerW / n - 3, cushT, mainD - backT - 4, fab,
+            -W / 2 + armW + innerW / n * (i + 0.5), legH + seatH + cushT / 2,
+            -(D - mainD) / 2 + (backT - 2) / 2);
+      box(chW - 4, cushT, D - mainD - 2, fab, (W - chW) / 2, legH + seatH + cushT / 2, mainD / 2);
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(5, legH, 5, legM, sx * (W / 2 - 8), legH / 2, sz * (D / 2 - 8));
+      break;
+    }
+    case 'table': { // 우드 상판 + 4다리 거실 테이블
+      const wood = mat(base, 0.7), leg = mat(darker, 0.7);
+      box(W, 4, D, wood, 0, H - 2, 0);
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(5, H - 4, 5, leg, sx * (W / 2 - 5), (H - 4) / 2, sz * (D / 2 - 5));
       break;
     }
     case 'kidsWardrobe': { // 흰 3유닛: 서랍4단 + 가운데 도어2짝 + 서랍4단, 원목 손잡이
