@@ -335,7 +335,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 10;
+const STATE_VERSION = 11;
 
 function defaultState() {
   let id = 1;
@@ -355,7 +355,7 @@ function defaultState() {
         pillars: [{ x: 475, y: 0, w: 20, h: 150 }] },
       { id: 'r2', name: '방2',  type: 'room', x: 858, y: 0,   w: 476, h: 431,
         cut: { corner: 'ne', w: 150, h: 130 },
-        doors:   [{ wall: 'w', off: 330, w: 80, hinge: 'end' }],
+        doors:   [{ wall: 's', off: 5, w: 80, hinge: 'start' }], // 방1과 동일: 남벽 서측, 안쪽 스윙
         windows: [{ wall: 'n', off: 60, w: 200, sill: 15, h: 195 },
                   { wall: 'e', off: 180, w: 200, sill: 15, h: 195 }],
         pillars: [{ x: 1184, y: 380, w: 150, h: 51 }] },
