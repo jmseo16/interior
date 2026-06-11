@@ -1581,7 +1581,10 @@ function build3D() {
     const cx = r.x + r.w / 2 - ox, cz = r.y + r.h / 2 - oz;
 
     if (r.type === 'zone') {
-      group.add(makeFloor(outline, zoneMat));
+      // 방 영역과 겹칠 때 z-fighting으로 어두운 색이 방 안에 비치지 않도록 살짝 아래로
+      const zf = makeFloor(outline, zoneMat);
+      zf.position.y = -1;
+      group.add(zf);
       const label = makeLabelSprite(r.name);
       label.position.set(cx, 30, cz);
       label.scale.multiplyScalar(0.7);
