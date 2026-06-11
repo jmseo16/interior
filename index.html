@@ -335,7 +335,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 9;
+const STATE_VERSION = 10;
 
 function defaultState() {
   let id = 1;
@@ -365,9 +365,9 @@ function defaultState() {
         windows: [{ wall: 's', off: 120, w: 230, sill: 85, h: 130 }] }, // 동쪽 끝이 붙박이장 면(x=1127)에 맞닿음
       { id: 'r4', name: '거실', type: 'room', x: 302, y: 620, w: 474, h: 540,
         windows: [{ wall: 's', off: 30, w: 414, sill: 5, h: 215 }],
-        // 확장 전 발코니 경계(y≈950~970)의 동/서 내력벽 스텁 (도면 스캔: 서 70 + 창 335 + 동 67)
-        pillars: [{ x: 302, y: 950, w: 70, h: 20 },
-                  { x: 706, y: 950, w: 70, h: 20 }] },
+        // 확장 전 발코니 경계(y≈950)에서 남쪽 창문 벽까지 이어지는 동/서 내력벽 (두께 20)
+        pillars: [{ x: 302, y: 950, w: 20, h: 210 },
+                  { x: 756, y: 950, w: 20, h: 210 }] },
       { id: 'z1', name: '현관',       type: 'zone', x: 30,   y: 420, w: 170, h: 200 },
       { id: 'z2', name: '욕실',       type: 'zone', x: 30,   y: 620, w: 270, h: 165 },
       { id: 'z3', name: '주방 발코니', type: 'zone', x: 495,  y: 0,   w: 363, h: 150 },
