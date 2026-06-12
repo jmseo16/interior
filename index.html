@@ -313,6 +313,8 @@
         <strong id="selName"></strong>
         <span id="selDims" style="color: var(--muted)"></span>
         <button class="small" id="selRotateBtn">↻ 회전 (R)</button>
+        <button class="small" id="selFlipHBtn">↔ 좌우</button>
+        <button class="small" id="selFlipVBtn">↕ 상하</button>
         <button class="small" id="selCopyBtn">⧉ 복제</button>
         <button class="small danger" id="selUnplaceBtn">배치 해제 (Del)</button>
       </div>
@@ -826,17 +828,33 @@ function frontEdge(f, fp) {
   }
 }
 
+function furnFlipTransform(f, fp) {
+  if (!f.flipH && !f.flipV) return { group: '', text: '' };
+  const sx = f.flipH ? -1 : 1, sy = f.flipV ? -1 : 1;
+  const tx = f.flipH ? (2 * f.x + fp.w) : 0;
+  const ty = f.flipV ? (2 * f.y + fp.d) : 0;
+  const tcx = f.x + fp.w / 2, tcy = f.y + fp.d / 2;
+  return {
+    group: `translate(${tx} ${ty}) scale(${sx} ${sy})`,
+    text: `translate(${tcx} ${tcy}) scale(${sx} ${sy}) translate(${-tcx} ${-tcy})`,
+  };
+}
+
 function drawFurniture(f) {
   const fp = footprint(f);
   const g = el('g', { class: 'furn' + (f.id === selectedId ? ' selected' : '') +
     (f.fixed ? ' fixed' : ''), 'data-id': f.id }, svg);
+  const { group: flipGrTr, text: flipTxtTr } = furnFlipTransform(f, fp);
+  if (flipGrTr) g.setAttribute('transform', flipGrTr);
   el('rect', { class: 'body-rect', x: f.x, y: f.y, width: fp.w, height: fp.d, fill: f.color, rx: 4 }, g);
   const [ex1, ey1, ex2, ey2] = frontEdge(f, fp);
   el('line', { class: 'front-mark', x1: ex1, y1: ey1, x2: ex2, y2: ey2 }, g);
   const t = el('text', { x: f.x + fp.w / 2, y: f.y + fp.d / 2 + 5, 'text-anchor': 'middle' }, g);
   t.textContent = f.name;
-  if (fp.d > fp.w * 1.4) // 좁고 긴 가구는 라벨 세로로
-    t.setAttribute('transform', `rotate(90 ${f.x + fp.w / 2} ${f.y + fp.d / 2})`);
+  const tcx = f.x + fp.w / 2, tcy = f.y + fp.d / 2;
+  const rotTr = fp.d > fp.w * 1.4 ? `rotate(90 ${tcx} ${tcy})` : '';
+  const tr = [rotTr, flipTxtTr].filter(Boolean).join(' ');
+  if (tr) t.setAttribute('transform', tr);
   g.addEventListener('pointerdown', evt => startDragPlaced(evt, f.id));
   return g;
 }
@@ -988,6 +1006,9 @@ function updateFurnElement(f) {
   const g = svg.querySelector(`.furn[data-id="${f.id}"]`);
   if (!g) return;
   const fp = footprint(f);
+  const { group: flipGrTr, text: flipTxtTr } = furnFlipTransform(f, fp);
+  if (flipGrTr) g.setAttribute('transform', flipGrTr);
+  else g.removeAttribute('transform');
   const rect = g.querySelector('rect.body-rect');
   rect.setAttribute('x', f.x); rect.setAttribute('y', f.y);
   rect.setAttribute('width', fp.w); rect.setAttribute('height', fp.d);
@@ -996,9 +1017,11 @@ function updateFurnElement(f) {
   mark.setAttribute('x1', ex1); mark.setAttribute('y1', ey1);
   mark.setAttribute('x2', ex2); mark.setAttribute('y2', ey2);
   const t = g.querySelector('text');
-  t.setAttribute('x', f.x + fp.w / 2); t.setAttribute('y', f.y + fp.d / 2 + 5);
-  if (fp.d > fp.w * 1.4)
-    t.setAttribute('transform', `rotate(90 ${f.x + fp.w / 2} ${f.y + fp.d / 2})`);
+  const tcx = f.x + fp.w / 2, tcy = f.y + fp.d / 2;
+  t.setAttribute('x', tcx); t.setAttribute('y', tcy + 5);
+  const rotTr = fp.d > fp.w * 1.4 ? `rotate(90 ${tcx} ${tcy})` : '';
+  const tr = [rotTr, flipTxtTr].filter(Boolean).join(' ');
+  if (tr) t.setAttribute('transform', tr);
   else t.removeAttribute('transform');
 }
 
@@ -1016,6 +1039,8 @@ function selectFurniture(id) {
     document.getElementById('selDims').textContent =
       `${f.w}×${f.d}×${f.h} · ${f.rot}°${f.fixed ? ' · 고정' : ''}`;
     document.getElementById('selRotateBtn').style.display = f.fixed ? 'none' : '';
+    document.getElementById('selFlipHBtn').style.display = f.fixed ? 'none' : '';
+    document.getElementById('selFlipVBtn').style.display = f.fixed ? 'none' : '';
     document.getElementById('selUnplaceBtn').style.display = f.fixed ? 'none' : '';
   } else {
     panel.style.display = 'none';
@@ -1045,7 +1070,18 @@ function unplaceSelected() {
   commit();
 }
 
+function flipSelected(axis) {
+  const f = state.furniture.find(x => x.id === selectedId);
+  if (!f || !f.placed || f.fixed) return;
+  if (axis === 'H') f.flipH = !f.flipH;
+  else f.flipV = !f.flipV;
+  commit();
+  selectFurniture(f.id);
+}
+
 document.getElementById('selRotateBtn').addEventListener('click', rotateSelected);
+document.getElementById('selFlipHBtn').addEventListener('click', () => flipSelected('H'));
+document.getElementById('selFlipVBtn').addEventListener('click', () => flipSelected('V'));
 document.getElementById('selCopyBtn').addEventListener('click', () => duplicateFurniture(selectedId));
 document.getElementById('selUnplaceBtn').addEventListener('click', unplaceSelected);
 
@@ -1864,6 +1900,8 @@ function build3D() {
     const modelObj = f.model ? makeModel(f) : null;
     if (modelObj) {
       modelObj.rotation.y = -f.rot * Math.PI / 180;
+      if (f.flipH) modelObj.scale.x = -1;
+      if (f.flipV) modelObj.scale.z = -1;
       modelObj.position.set(cx0, 0, cz0);
       group.add(modelObj);
       const label = makeLabelSprite(f.name);
@@ -1884,6 +1922,8 @@ function build3D() {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(f.w, f.h, f.d), mats);
     const cx = f.x + fp.w / 2 - ox, cz = f.y + fp.d / 2 - oz;
     mesh.rotation.y = -f.rot * Math.PI / 180;
+    if (f.flipH) mesh.scale.x = -1;
+    if (f.flipV) mesh.scale.z = -1;
     mesh.position.set(cx, f.h / 2, cz);
     group.add(mesh);
     const edges = new THREE.LineSegments(
@@ -1892,6 +1932,7 @@ function build3D() {
     );
     edges.position.copy(mesh.position);
     edges.rotation.copy(mesh.rotation);
+    edges.scale.copy(mesh.scale);
     group.add(edges);
     const label = makeLabelSprite(f.name);
     label.position.set(cx, f.h + 30, cz);
