@@ -235,6 +235,7 @@
           <option value="cornerSofa">ㄴ자 소파 (카우치형)</option>
           <option value="wallTv">벽걸이 TV (프레임)</option>
           <option value="table">테이블 (우드 4다리)</option>
+          <option value="toyBox">장난감 정리함 (1단 컬러 빈)</option>
         </select>
       </div>
       <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">3D 모델 선택 시 사진보다 우선 적용됩니다. 사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
@@ -356,7 +357,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 12;
+const STATE_VERSION = 13;
 
 function defaultState() {
   let id = 1;
@@ -406,6 +407,8 @@ function defaultState() {
       F('피아노',       135, 40,   60, '#d6c2e8', 'piano'),
       F('책장(유리도어)', 78, 32,  192, '#8fc7d6', 'glassBookcase'),
       F('이케아 책상',   105, 50,   80, '#f1948a', 'ikeaDesk'),
+      F('퀸 침대',       150, 200,  45, '#aebfd8', 'bed'),
+      F('장난감 정리함(1단)', 86, 30, 40, '#f2b134', 'toyBox'),
       // 안방 동쪽 벽 붙박이장: 고정 아티팩트 (사진 기준, 표준 깊이 60)
       { id: 'fix1', name: '붙박이장', w: 386, d: 60, h: 235, color: '#cfc9bd',
         model: 'builtinCloset', x: 1127, y: 573, rot: 90, placed: true, fixed: true },
@@ -1580,6 +1583,23 @@ function makeModel(f) {
       box(chW - 4, cushT, D - mainD - 2, fab, (W - chW) / 2, legH + seatH + cushT / 2, mainD / 2);
       for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
         box(5, legH, 5, legM, sx * (W / 2 - 8), legH / 2, sz * (D / 2 - 8));
+      break;
+    }
+    case 'toyBox': { // 1단 장난감 정리함: 원목 프레임 + 앞으로 기울어진 컬러 빈 3개
+      const wood = mat(0xd9c6a5, 0.7);
+      const BIN = [0xe26d5c, 0x4f86c6, 0x79b473];
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(4, H, 4, wood, sx * (W / 2 - 2), H / 2, sz * (D / 2 - 2)); // 4기둥
+      box(W, 3, D, wood, 0, H - 1.5, 0);                              // 상판
+      box(W - 8, 3, 4, wood, 0, H * 0.3, -(D / 2 - 2));               // 뒤 가로대
+      const n = 3, bw = (W - 16) / n, bh = H * 0.55, bd = D - 8;
+      for (let i = 0; i < n; i++) {
+        const bin = new THREE.Mesh(new THREE.BoxGeometry(bw - 4, bh, bd),
+          mat(BIN[i % BIN.length], 0.5));
+        bin.rotation.x = 0.22; // 꺼내기 쉽게 앞으로 기울임
+        bin.position.set(-W / 2 + 8 + bw * (i + 0.5), H * 0.42, 2);
+        g.add(bin);
+      }
       break;
     }
     case 'table': { // 우드 상판 + 4다리 거실 테이블
