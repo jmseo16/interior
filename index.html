@@ -562,34 +562,40 @@ function roomAt(cx, cy) {
 }
 
 // 좌상단(x,y)·크기(fw,fd)의 가구를 방 원점 기준 50cm 그리드에 스냅하고 방 안으로 클램프.
-// 컷/문 스윙 등 배치 불가 영역과 겹치면 가장 가까운 바깥으로 밀어냄
-function snapInRoom(room, x, y, fw, fd) {
+// 다른 가구·컷·문 스윙과 겹치면: 장애물에 딱 붙는 위치(멈춤) 또는 근처 빈 그리드 칸 중
+// 포인터에 가장 가까운 곳을 선택
+function snapInRoom(room, x, y, fw, fd, exceptId) {
   const clampX = v => Math.min(Math.max(v, room.x), Math.max(room.x, room.x + room.w - fw));
   const clampY = v => Math.min(Math.max(v, room.y), Math.max(room.y, room.y + room.h - fd));
-  let sx = clampX(room.x + Math.round((x - room.x) / GRID) * GRID);
-  let sy = clampY(room.y + Math.round((y - room.y) / GRID) * GRID);
-  const blocks = blockedRects(room);
-  for (let pass = 0; pass < 2; pass++) {
-    for (const c of blocks) {
-      if (!rectsOverlap(sx, sy, fw, fd, c)) continue;
-      let best = null;
-      for (const [qx0, qy0] of [[c.x - fw, sy], [c.x + c.w, sy], [sx, c.y - fd], [sx, c.y + c.h]]) {
-        const qx = clampX(qx0), qy = clampY(qy0);
-        if (rectsOverlap(qx, qy, fw, fd, c)) continue;
-        const dist = Math.abs(qx - sx) + Math.abs(qy - sy);
-        if (!best || dist < best.dist) best = { x: qx, y: qy, dist };
-      }
-      if (best) { sx = best.x; sy = best.y; }
-    }
+  const blocks = roomBlocks(room, exceptId);
+  const free = (qx, qy) => !blocks.some(b => rectsOverlap(qx, qy, fw, fd, b));
+  const gx = clampX(room.x + Math.round((x - room.x) / GRID) * GRID);
+  const gy = clampY(room.y + Math.round((y - room.y) / GRID) * GRID);
+  if (free(gx, gy)) return { x: gx, y: gy };
+  let best = null;
+  const consider = (qx, qy) => {
+    qx = clampX(qx); qy = clampY(qy);
+    if (!free(qx, qy)) return;
+    const dist = (qx - x) ** 2 + (qy - y) ** 2;
+    if (!best || dist < best.dist) best = { x: qx, y: qy, dist };
+  };
+  for (const b of blocks) { // 장애물 4면에 딱 붙는 위치
+    consider(b.x - fw, gy); consider(b.x + b.w, gy);
+    consider(gx, b.y - fd); consider(gx, b.y + b.h);
   }
-  return { x: sx, y: sy };
+  for (let ring = 1; ring <= 4; ring++) // 주변 그리드 칸 (가까운 링부터)
+    for (let dx = -ring; dx <= ring; dx++)
+      for (let dy = -ring; dy <= ring; dy++)
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === ring)
+          consider(gx + dx * GRID, gy + dy * GRID);
+  return best || { x: gx, y: gy };
 }
 
 // 드래그 중 좌표 → 스냅 결과 (방 밖이면 null)
-function snapPosition(x, y, fw, fd) {
+function snapPosition(x, y, fw, fd, exceptId) {
   const room = roomAt(x + fw / 2, y + fd / 2);
   if (!room) return null;
-  return { room, ...snapInRoom(room, x, y, fw, fd) };
+  return { room, ...snapInRoom(room, x, y, fw, fd, exceptId) };
 }
 
 // 방의 배치 불가 영역 + 배치된 비고정 가구 풋프린트
@@ -882,7 +888,7 @@ function onPointerMove(evt) {
   const p = svgPoint(evt);
   const fp = footprint(f);
   const rawX = p.x - drag.offX, rawY = p.y - drag.offY;
-  const snap = snapPosition(rawX, rawY, fp.w, fp.d);
+  const snap = snapPosition(rawX, rawY, fp.w, fp.d, f.id);
 
   // 고스트(스냅 프리뷰) 갱신
   if (!drag.ghostEl) {
@@ -1055,7 +1061,7 @@ function rotateSelected() {
   const fp = footprint(f);
   const room = roomAt(f.x + fp.w / 2, f.y + fp.d / 2) || roomAt(f.x + 1, f.y + 1);
   if (room) {
-    const s = snapInRoom(room, f.x, f.y, fp.w, fp.d);
+    const s = snapInRoom(room, f.x, f.y, fp.w, fp.d, f.id);
     f.x = s.x; f.y = s.y;
   }
   commit();
