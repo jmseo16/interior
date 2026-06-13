@@ -358,7 +358,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 14;
+const STATE_VERSION = 15;
 
 function defaultState() {
   let id = 1;
@@ -410,19 +410,17 @@ function defaultState() {
       F('이케아 책상',   105, 50,   80, '#f1948a', 'ikeaDesk'),
       F('퀸 침대',       150, 200,  45, '#aebfd8', 'bed'),
       F('장난감 정리함(1단)', 86, 30, 40, '#f2b134', 'toyBox'),
-      // 거실 원목 식탁(6인용): 소파 우측 중앙, TV 왼쪽 (그리드 정합 502,720)
+      // 거실: 원목 식탁(6인용) — 피아노 동측, 남측 구역 (그리드 정합 452,1020)
       { id: 'diningTbl', name: '원목 식탁(6인용)', w: 180, d: 90, h: 75,
-        color: '#c49a6c', model: 'diningTable', x: 502, y: 720, rot: 0, placed: true },
+        color: '#c49a6c', model: 'diningTable', x: 452, y: 1020, rot: 0, placed: true },
       // 안방 동쪽 벽 붙박이장: 고정 아티팩트 (사진 기준, 표준 깊이 60)
       { id: 'fix1', name: '붙박이장', w: 386, d: 60, h: 235, color: '#cfc9bd',
         model: 'builtinCloset', x: 1127, y: 573, rot: 90, placed: true, fixed: true },
-      // 거실: 98" 프레임 TV(동측 벽걸이, 217.8×124.8 공식 스펙) + ㄴ자 소파(서측) + 소파 테이블(소파 남측)
+      // 거실: 98" 프레임 TV(동측 벽걸이, 217.8×124.8 공식 스펙) + ㄴ자 소파(서측)
       { id: 'tv98', name: '프레임 TV 98"', w: 218, d: 10, h: 125, color: '#23262e',
         model: 'wallTv', x: 766, y: 670, rot: 90, placed: true },
       { id: 'sofaL', name: 'ㄴ자 소파', w: 270, d: 168, h: 85, color: '#8a93a3',
         model: 'cornerSofa', x: 302, y: 640, rot: 270, placed: true },
-      { id: 'sofaTbl', name: '소파 테이블', w: 120, d: 60, h: 46, color: '#b08968',
-        model: 'table', x: 330, y: 940, rot: 0, placed: true },
     ],
   };
 }
@@ -455,6 +453,7 @@ function loadAutosave() {
       const d = defaultState();
       const names = new Set(s.furniture.map(f => f.name));
       s.rooms = d.rooms;
+      s.furniture = s.furniture.filter(f => f.name !== '소파 테이블'); // v15: 제거됨
       s.furniture.push(...d.furniture.filter(f => !names.has(f.name)));
       s.version = STATE_VERSION;
     }
