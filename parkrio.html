@@ -372,7 +372,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 15;
+const STATE_VERSION = 16;
 
 function defaultState() {
   let id = 1;
@@ -440,10 +440,12 @@ function defaultState() {
       { id: 'f8', name: '퀸 침대', w: 150, d: 200, h: 45, color: '#aebfd8',
         model: 'bed', x: 776, y: 723, rot: 270, placed: true },
       // ── 거실 ─────────────────────────────────────────────────────────
-      { id: 'tv98', name: '프레임 TV 98"', w: 218, d: 10, h: 125, color: '#23262e',
-        model: 'wallTv', x: 766, y: 670, rot: 90, placed: true },
-      { id: 'sofaL', name: 'ㄴ자 소파', w: 270, d: 168, h: 85, color: '#8a93a3',
-        model: 'cornerSofa', x: 302, y: 670, rot: 90, placed: true, flipV: true },
+      { id: 'tv98', name: '삼성 더프레임 85"', w: 190, d: 10, h: 110, color: '#1c1e24',
+        model: 'wallTv', x: 766, y: 679, rot: 90, placed: true },
+      { id: 'sofaL', name: '소파', w: 270, d: 95, h: 85, color: '#8a93a3',
+        model: 'sofa', x: 302, y: 670, rot: 90, placed: true },
+      { id: 'tvCabinet', name: '애스턴 TV 거실장', w: 180, d: 40, h: 43, color: '#7d5a3c',
+        model: 'tvCabinet', x: 736, y: 684, rot: 90, placed: true },
       { id: 'f5', name: '피아노', w: 135, d: 40, h: 60, color: '#d6c2e8',
         model: 'piano', x: 322, y: 1020, rot: 90, placed: true },
       { id: 'diningTbl', name: '원목 식탁(6인용)', w: 180, d: 90, h: 75,
@@ -478,12 +480,16 @@ function loadAutosave() {
     const s = JSON.parse(raw);
     if (!Array.isArray(s.rooms) || !Array.isArray(s.furniture)) return null;
     if (s.version !== STATE_VERSION) {
-      // 구버전: 방 정의는 최신 기본값으로 교체하되, 가구 배치는 유지하고 새 기본 가구만 추가
       const d = defaultState();
-      const names = new Set(s.furniture.map(f => f.name));
       s.rooms = d.rooms;
-      s.furniture = s.furniture.filter(f => f.name !== '소파 테이블'); // v15: 제거됨
-      s.furniture.push(...d.furniture.filter(f => !names.has(f.name)));
+      // v15→v16: TV 교체, 소파 직선화, TV장 추가
+      const tv = s.furniture.find(f => f.id === 'tv98');
+      if (tv) { tv.name = '삼성 더프레임 85"'; tv.w = 190; tv.h = 110; tv.color = '#1c1e24'; tv.y = 679; }
+      const sofa = s.furniture.find(f => f.id === 'sofaL');
+      if (sofa) { sofa.name = '소파'; sofa.model = 'sofa'; sofa.d = 95; delete sofa.flipV; }
+      s.furniture = s.furniture.filter(f => f.name !== '소파 테이블');
+      const ids = new Set(s.furniture.map(f => f.id));
+      s.furniture.push(...d.furniture.filter(f => !ids.has(f.id)));
       s.version = STATE_VERSION;
     }
     return s;
@@ -881,10 +887,20 @@ function furnFlipTransform(f, fp) {
   };
 }
 
+function findFurnRoom(f) {
+  const fp = footprint(f);
+  const cx = f.x + fp.w / 2, cy = f.y + fp.d / 2;
+  return state.rooms.find(r => r.type !== 'zone' &&
+    cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h);
+}
+
 function drawFurniture(f) {
   const fp = footprint(f);
-  const g = el('g', { class: 'furn' + (f.id === selectedId ? ' selected' : '') +
-    (f.fixed ? ' fixed' : ''), 'data-id': f.id }, svg);
+  const room = findFurnRoom(f);
+  const attrs = { class: 'furn' + (f.id === selectedId ? ' selected' : '') +
+    (f.fixed ? ' fixed' : ''), 'data-id': f.id };
+  if (room) attrs['clip-path'] = `url(#clip-${room.id})`;
+  const g = el('g', attrs, svg);
   const { group: flipGrTr, text: flipTxtTr } = furnFlipTransform(f, fp);
   if (flipGrTr) g.setAttribute('transform', flipGrTr);
   el('rect', { class: 'body-rect', x: f.x, y: f.y, width: fp.w, height: fp.d, fill: f.color, rx: 4 }, g);
@@ -1615,6 +1631,20 @@ function makeModel(f) {
       box(chW - 4, cushT, D - mainD - 2, fab, (W - chW) / 2, legH + seatH + cushT / 2, mainD / 2);
       for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
         box(5, legH, 5, legM, sx * (W / 2 - 8), legH / 2, sz * (D / 2 - 8));
+      break;
+    }
+    case 'tvCabinet': { // 원목 TV 거실장: 낮은 바디 + 3서랍 + 메탈 다리
+      const woodM = mat(base, 0.65), darkM = mat(darker, 0.6), legM = mat(0x2c2c2c, 0.4);
+      const legH = 15, bodyH = H - legH;
+      box(W, bodyH, D, woodM, 0, legH + bodyH / 2, 0);
+      const dw = (W - 8) / 3;
+      for (let i = 0; i < 3; i++) {
+        const dx = -W / 2 + 4 + dw * (i + 0.5);
+        box(dw - 4, bodyH - 6, 2, darkM, dx, legH + bodyH / 2, -D / 2 + 1);
+        box(4, 3, 3, legM, dx, legH + 5, -D / 2 + 2.5);
+      }
+      for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        box(2.5, legH, 2.5, legM, sx * (W / 2 - 6), legH / 2, sz * (D / 2 - 6));
       break;
     }
     case 'diningTable': { // 원목 식탁 6인용: 두꺼운 상판 + 트러슬 다리 2쌍 + 발 가로대
