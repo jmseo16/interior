@@ -192,10 +192,20 @@
     color: var(--muted); font-size: 12px;
     background: rgba(40,44,52,.8); padding: 6px 10px; border-radius: 6px;
   }
+  #linkBanner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+    background: #2d6a4f; color: #fff; font-size: 13px;
+    padding: 8px 16px; display: none; align-items: center; gap: 10px;
+  }
+  #linkBanner button { background: rgba(255,255,255,.2); border-color: transparent; color: #fff; }
 </style>
 </head>
 <body>
 
+<div id="linkBanner">
+  🔗 공유 링크에서 배치를 불러왔습니다. 변경하면 이 기기에 자동저장됩니다.
+  <button class="small" onclick="document.getElementById('linkBanner').style.display='none'">✕</button>
+</div>
 <aside id="sidebar">
   <h1>🏠 가구 배치 플래너 <small>단위: cm · 그리드 50cm</small></h1>
 
@@ -288,6 +298,10 @@
       </div>
       <div id="sessionList"></div>
       <div class="row" style="margin-top:8px">
+        <button class="primary" id="shareLinkBtn">🔗 링크 공유</button>
+        <span id="shareLinkStatus" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <div class="row">
         <button id="exportBtn">JSON 내보내기</button>
         <button id="importBtn">가져오기</button>
         <input type="file" id="importFile" accept=".json,application/json" style="display:none">
@@ -2060,11 +2074,69 @@ function commit() {
   if (is3D && three) build3D();
 }
 
-renderPlan();
-renderPalette();
-renderFurnList();
-renderRoomList();
-renderSessions();
+/* ================= 링크 공유 (URL 해시 압축) ================= */
+
+async function stateToHash(s) {
+  const json = JSON.stringify(s);
+  try {
+    const cs = new CompressionStream('gzip');
+    const w = cs.writable.getWriter();
+    w.write(new TextEncoder().encode(json)); w.close();
+    const buf = await new Response(cs.readable).arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return 's=' + b64;
+  } catch {
+    return 'j=' + btoa(unescape(encodeURIComponent(json)));
+  }
+}
+
+async function hashToState(hash) {
+  if (hash.startsWith('s=')) {
+    const b64 = hash.slice(2).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const ds = new DecompressionStream('gzip');
+    const w = ds.writable.getWriter(); w.write(raw); w.close();
+    return JSON.parse(await new Response(ds.readable).text());
+  }
+  if (hash.startsWith('j=')) {
+    return JSON.parse(decodeURIComponent(escape(atob(hash.slice(2)))));
+  }
+  return null;
+}
+
+// 페이지 로드 시 URL 해시 확인
+(async () => {
+  const hash = location.hash.slice(1);
+  if (hash.startsWith('s=') || hash.startsWith('j=')) {
+    try {
+      const imported = await hashToState(hash);
+      if (imported && Array.isArray(imported.furniture)) {
+        state = normalizeState(imported);
+        history.replaceState(null, '', location.pathname); // 해시 정리
+        document.getElementById('linkBanner').style.display = 'flex';
+      }
+    } catch (e) { console.warn('링크 상태 로드 실패', e); }
+  }
+  renderPlan();
+  renderPalette();
+  renderFurnList();
+  renderRoomList();
+  renderSessions();
+})();
+
+document.getElementById('shareLinkBtn').addEventListener('click', async () => {
+  const hash = await stateToHash(state);
+  const url = location.origin + location.pathname + '#' + hash;
+  try {
+    await navigator.clipboard.writeText(url);
+    const st = document.getElementById('shareLinkStatus');
+    st.textContent = '✓ 클립보드에 복사됨!';
+    setTimeout(() => { st.textContent = ''; }, 3000);
+  } catch {
+    prompt('아래 링크를 복사하세요:', url);
+  }
+});
 </script>
 </body>
 </html>
