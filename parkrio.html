@@ -372,7 +372,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 16;
+const STATE_VERSION = 17;
 
 function defaultState() {
   let id = 1;
@@ -442,8 +442,8 @@ function defaultState() {
       // ── 거실 ─────────────────────────────────────────────────────────
       { id: 'tv98', name: '삼성 더프레임 85"', w: 190, d: 10, h: 110, color: '#1c1e24',
         model: 'wallTv', x: 766, y: 679, rot: 90, placed: true },
-      { id: 'sofaL', name: '소파', w: 270, d: 95, h: 85, color: '#8a93a3',
-        model: 'sofa', x: 302, y: 670, rot: 90, placed: true },
+      { id: 'sofaL', name: '자코모 소파', w: 320, d: 120, h: 100, color: '#d8d3cc',
+        model: 'sofa', x: 302, y: 620, rot: 90, placed: true },
       { id: 'tvCabinet', name: '애스턴 TV 거실장', w: 180, d: 40, h: 43, color: '#7d5a3c',
         model: 'tvCabinet', x: 736, y: 684, rot: 90, placed: true },
       { id: 'f5', name: '피아노', w: 135, d: 40, h: 60, color: '#d6c2e8',
@@ -482,11 +482,11 @@ function loadAutosave() {
     if (s.version !== STATE_VERSION) {
       const d = defaultState();
       s.rooms = d.rooms;
-      // v15→v16: TV 교체, 소파 직선화, TV장 추가
+      // v15→v16: TV 교체, 소파 직선화, TV장 추가; v16→v17: 자코모 소파 교체
       const tv = s.furniture.find(f => f.id === 'tv98');
       if (tv) { tv.name = '삼성 더프레임 85"'; tv.w = 190; tv.h = 110; tv.color = '#1c1e24'; tv.y = 679; }
       const sofa = s.furniture.find(f => f.id === 'sofaL');
-      if (sofa) { sofa.name = '소파'; sofa.model = 'sofa'; sofa.d = 95; delete sofa.flipV; }
+      if (sofa) { sofa.name = '자코모 소파'; sofa.model = 'sofa'; sofa.w = 320; sofa.d = 120; sofa.h = 100; sofa.color = '#d8d3cc'; sofa.y = 620; delete sofa.flipV; }
       s.furniture = s.furniture.filter(f => f.name !== '소파 테이블');
       const ids = new Set(s.furniture.map(f => f.id));
       s.furniture.push(...d.furniture.filter(f => !ids.has(f.id)));
