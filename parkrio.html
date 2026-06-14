@@ -1605,53 +1605,75 @@ function makeModel(f) {
       break;
     }
     case 'platformSofa': {
-      // B+C 플랫폼 소파: B(좌, 얕은 섹션) + C(우, 깊은 섹션) + 스캐터 쿠션 + 슬레드 다리
-      const platM = mat(darker, 0.82), seatM = mat(base, 0.90), legM = mat(0x808080, 0.28);
-      const legH = 6, platT = 14, cushT = 13;
-      const seatH = legH + platT + cushT;          // ~33cm 좌석 높이
-      const bW = W * 0.60, cW = W - bW;            // B:60%(긴쪽), C:40%(짧은쪽)
-      const bD = D * 0.669;                          // B 깊이 ~950/1420
-      const bX = -W/2 + bW/2, cX = W/2 - cW/2;   // 각 섹션 X 중심
-      const bZOff = -(D - bD) / 2;                 // B 뒷면을 C 뒷면(-D/2)에 정렬
+      // B+C 플랫폼 소파: 챔퍼 다각형 플랫폼 + 슬레드 다리 (legH=14cm로 떠있는 효과)
+      const pMat = new THREE.MeshStandardMaterial({ color: darker, roughness: 0.80, side: THREE.DoubleSide });
+      const sMat = new THREE.MeshStandardMaterial({ color: base,   roughness: 0.90, side: THREE.DoubleSide });
+      const lMat = mat(0x858585, 0.22);
+      const legH = 14, platT = 16, cushT = 14;
+      const seatH = legH + platT + cushT;           // ~44cm 좌석 높이
+      const bW = W * 0.60, cW = W - bW;
+      const bD = D * 0.669;
+      const ch = Math.min(24, W * 0.07);            // 챔퍼 크기
+      const bL = -W/2, bR = bL + bW;
+      const cL = bR,  cR = W/2;
+      const bBk = -D/2, bFr = bBk + bD;
+      const cBk = -D/2, cFr = D/2;
+      const bXc = bL + bW/2, cXc = cL + cW/2;
+      const bZc = (bBk + bFr) / 2;
 
-      // ── 플랫폼 프레임 ──────────────────────────────────────────
-      box(bW, platT, bD, platM, bX, legH + platT/2, bZOff);   // B
-      box(cW, platT, D,  platM, cX, legH + platT/2, 0);         // C
+      // 다각형 수평 슬래브 헬퍼: shape(x,-z) + rotation.x=-π/2 → 월드(x,*,z)
+      const makePlatform = (xzVerts, thick, m, yBase) => {
+        const shape = new THREE.Shape(xzVerts.map(([x, z]) => new THREE.Vector2(x, -z)));
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+        const mesh = new THREE.Mesh(geo, m);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = yBase;
+        g.add(mesh);
+      };
+
+      // ── 플랫폼 슬래브 (챔퍼 다각형) ───────────────────────────
+      // B: 앞-왼쪽 모서리 챔퍼 (외측)
+      makePlatform([
+        [bL, bBk], [bR, bBk], [bR, bFr],
+        [bL + ch, bFr], [bL, bFr - ch],
+      ], platT, pMat, legH);
+      // C: 앞-오른쪽 모서리 챔퍼 (외측)
+      makePlatform([
+        [cL, cBk], [cR, cBk],
+        [cR, cFr - ch], [cR - ch, cFr], [cL, cFr],
+      ], platT, pMat, legH);
 
       // ── 시트 쿠션 ──────────────────────────────────────────────
-      // B: 3개 나란히
+      // B: 3개 나란히 (플랫폼 위, 챔퍼 범위 안쪽)
       const nB = 3, bCW = (bW - 8) / nB;
-      for (let i = 0; i < nB; i++) {
-        const cx = -W/2 + 4 + bCW * (i + 0.5);
-        box(bCW - 3, cushT, bD - 6, seatM, cx, seatH - cushT/2, bZOff);
-      }
-      // C: 1개 넓은 쿠션
-      box(cW - 6, cushT, D - 6, seatM, cX, seatH - cushT/2, 0);
+      for (let i = 0; i < nB; i++)
+        box(bCW - 3, cushT, bD * 0.86, sMat,
+          bL + 4 + bCW * (i + 0.5), seatH - cushT / 2, bZc);
+      // C: 1개 넓은 쿠션 (챔퍼만큼 폭 줄임)
+      box(cW - ch - 6, cushT, D * 0.86, sMat, cXc, seatH - cushT / 2, (cBk + cFr) / 2);
 
-      // ── 스캐터 쿠션 (뒤로 기대어 서있음) ──────────────────────
-      const scW = 46, scH = 50, scD = 11, scLean = 0.38;
-      const scCenterY = seatH + scH * 0.38;
-      // B 2개
-      for (const sx of [bX - bW * 0.22, bX + bW * 0.18]) {
+      // ── 스캐터 쿠션 (뒷벽 쪽으로 기울어 세움) ─────────────────
+      const scW = 48, scH = 52, scD = 11, scLean = 0.38;
+      const scY = seatH + scH * 0.40;
+      const scZ = -D / 2 + scD * 0.65;
+      for (const sX of [bXc - bW * 0.20, bXc + bW * 0.15]) {
         const sc = new THREE.Mesh(new THREE.BoxGeometry(scW, scH, scD),
-          mat(base.getHex(), 0.96));
+          mat(base.getHex(), 0.95));
         sc.rotation.x = scLean;
-        sc.position.set(sx, scCenterY, -D/2 + scD * 0.6);
+        sc.position.set(sX, scY, scZ);
         g.add(sc);
       }
-      // C 1개 (조금 더 큰)
-      const scC = new THREE.Mesh(new THREE.BoxGeometry(scW + 10, scH + 5, scD),
-        mat(base.getHex(), 0.96));
+      const scC = new THREE.Mesh(new THREE.BoxGeometry(scW + 10, scH + 6, scD),
+        mat(base.getHex(), 0.95));
       scC.rotation.x = scLean;
-      scC.position.set(cX, scCenterY + 2, -D/2 + scD * 0.6);
+      scC.position.set(cXc, scY + 2, scZ);
       g.add(scC);
 
-      // ── 슬레드형 금속 다리 ─────────────────────────────────────
-      const slW = 3.5, slH = legH;
-      for (const lx of [bX - bW/2 + 18, bX + bW/2 - 18])
-        box(slW, slH, Math.min(bD * 0.72, 58), legM, lx, slH/2, bZOff);
-      for (const lx of [cX - cW/2 + 14, cX + cW/2 - 14])
-        box(slW, slH, Math.min(D * 0.68, 82), legM, lx, slH/2, 0);
+      // ── 슬레드 다리 (legH=14cm, 8cm 폭 → 부유 효과 명확) ──────
+      for (const lx of [bL + 5, bR - 5])
+        box(8, legH, bD * 0.75, lMat, lx, legH / 2, bZc);
+      for (const lx of [cL + 5, cR - 5])
+        box(8, legH, D * 0.70, lMat, lx, legH / 2, 0);
       break;
     }
     case 'wallTv': { // 벽걸이 프레임 TV: 베젤 + 매트 스크린 + 아트모드 그림, 벽면(-z)에 밀착해 띄움
