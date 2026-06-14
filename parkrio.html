@@ -372,7 +372,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 17;
+const STATE_VERSION = 18;
 
 function defaultState() {
   let id = 1;
@@ -442,8 +442,8 @@ function defaultState() {
       // ── 거실 ─────────────────────────────────────────────────────────
       { id: 'tv98', name: '삼성 더프레임 85"', w: 190, d: 10, h: 110, color: '#1c1e24',
         model: 'wallTv', x: 766, y: 679, rot: 90, placed: true },
-      { id: 'sofaL', name: '자코모 소파', w: 320, d: 120, h: 100, color: '#d8d3cc',
-        model: 'sofa', x: 302, y: 620, rot: 90, placed: true },
+      { id: 'sofaL', name: 'B+C 소파', w: 330, d: 142, h: 84, color: '#c8c2bb',
+        model: 'platformSofa', x: 302, y: 620, rot: 90, placed: true },
       { id: 'tvCabinet', name: '애스턴 TV 거실장', w: 180, d: 40, h: 43, color: '#7d5a3c',
         model: 'tvCabinet', x: 736, y: 684, rot: 90, placed: true },
       { id: 'f5', name: '피아노', w: 135, d: 40, h: 60, color: '#d6c2e8',
@@ -482,11 +482,11 @@ function loadAutosave() {
     if (s.version !== STATE_VERSION) {
       const d = defaultState();
       s.rooms = d.rooms;
-      // v15→v16: TV 교체, 소파 직선화, TV장 추가; v16→v17: 자코모 소파 교체
+      // v15→v16: TV 교체, 소파 직선화, TV장 추가; v16→v17: 자코모 소파; v17→v18: B+C 플랫폼 소파
       const tv = s.furniture.find(f => f.id === 'tv98');
       if (tv) { tv.name = '삼성 더프레임 85"'; tv.w = 190; tv.h = 110; tv.color = '#1c1e24'; tv.y = 679; }
       const sofa = s.furniture.find(f => f.id === 'sofaL');
-      if (sofa) { sofa.name = '자코모 소파'; sofa.model = 'sofa'; sofa.w = 320; sofa.d = 120; sofa.h = 100; sofa.color = '#d8d3cc'; sofa.y = 620; delete sofa.flipV; }
+      if (sofa) { sofa.name = 'B+C 소파'; sofa.model = 'platformSofa'; sofa.w = 330; sofa.d = 142; sofa.h = 84; sofa.color = '#c8c2bb'; sofa.y = 620; delete sofa.flipV; }
       s.furniture = s.furniture.filter(f => f.name !== '소파 테이블');
       const ids = new Set(s.furniture.map(f => f.id));
       s.furniture.push(...d.furniture.filter(f => !ids.has(f.id)));
@@ -1602,6 +1602,56 @@ function makeModel(f) {
             -innerW / 2 + innerW / n * (i + 0.5), legH + seatH + cushT / 2, (backT - 4) / 2);
       for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
         box(5, legH, 5, legM, sx * (W / 2 - 9), legH / 2, sz * (D / 2 - 9));
+      break;
+    }
+    case 'platformSofa': {
+      // B+C 플랫폼 소파: B(좌, 얕은 섹션) + C(우, 깊은 섹션) + 스캐터 쿠션 + 슬레드 다리
+      const platM = mat(darker, 0.82), seatM = mat(base, 0.90), legM = mat(0x808080, 0.28);
+      const legH = 6, platT = 14, cushT = 13;
+      const seatH = legH + platT + cushT;          // ~33cm 좌석 높이
+      const bW = W * 0.60, cW = W - bW;            // B:60%(긴쪽), C:40%(짧은쪽)
+      const bD = D * 0.669;                          // B 깊이 ~950/1420
+      const bX = -W/2 + bW/2, cX = W/2 - cW/2;   // 각 섹션 X 중심
+      const bZOff = -(D - bD) / 2;                 // B 뒷면을 C 뒷면(-D/2)에 정렬
+
+      // ── 플랫폼 프레임 ──────────────────────────────────────────
+      box(bW, platT, bD, platM, bX, legH + platT/2, bZOff);   // B
+      box(cW, platT, D,  platM, cX, legH + platT/2, 0);         // C
+
+      // ── 시트 쿠션 ──────────────────────────────────────────────
+      // B: 3개 나란히
+      const nB = 3, bCW = (bW - 8) / nB;
+      for (let i = 0; i < nB; i++) {
+        const cx = -W/2 + 4 + bCW * (i + 0.5);
+        box(bCW - 3, cushT, bD - 6, seatM, cx, seatH - cushT/2, bZOff);
+      }
+      // C: 1개 넓은 쿠션
+      box(cW - 6, cushT, D - 6, seatM, cX, seatH - cushT/2, 0);
+
+      // ── 스캐터 쿠션 (뒤로 기대어 서있음) ──────────────────────
+      const scW = 46, scH = 50, scD = 11, scLean = 0.38;
+      const scCenterY = seatH + scH * 0.38;
+      // B 2개
+      for (const sx of [bX - bW * 0.22, bX + bW * 0.18]) {
+        const sc = new THREE.Mesh(new THREE.BoxGeometry(scW, scH, scD),
+          mat(base.getHex(), 0.96));
+        sc.rotation.x = scLean;
+        sc.position.set(sx, scCenterY, -D/2 + scD * 0.6);
+        g.add(sc);
+      }
+      // C 1개 (조금 더 큰)
+      const scC = new THREE.Mesh(new THREE.BoxGeometry(scW + 10, scH + 5, scD),
+        mat(base.getHex(), 0.96));
+      scC.rotation.x = scLean;
+      scC.position.set(cX, scCenterY + 2, -D/2 + scD * 0.6);
+      g.add(scC);
+
+      // ── 슬레드형 금속 다리 ─────────────────────────────────────
+      const slW = 3.5, slH = legH;
+      for (const lx of [bX - bW/2 + 18, bX + bW/2 - 18])
+        box(slW, slH, Math.min(bD * 0.72, 58), legM, lx, slH/2, bZOff);
+      for (const lx of [cX - cW/2 + 14, cX + cW/2 - 14])
+        box(slW, slH, Math.min(D * 0.68, 82), legM, lx, slH/2, 0);
       break;
     }
     case 'wallTv': { // 벽걸이 프레임 TV: 베젤 + 매트 스크린 + 아트모드 그림, 벽면(-z)에 밀착해 띄움
