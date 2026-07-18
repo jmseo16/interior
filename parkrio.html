@@ -247,6 +247,9 @@
           <option value="table">테이블 (우드 4다리)</option>
           <option value="toyBox">장난감 정리함 (1단 컬러 빈)</option>
           <option value="diningTable">원목 식탁 (6인용 트러슬)</option>
+          <option value="samkidsBookshelf">샘키즈 책장 (3열×3단)</option>
+          <option value="samkidsWardrobeCombo">샘키즈 옷장 콤보 (도어+서랍)</option>
+          <option value="samkidsCornerWardrobe">샘키즈 옷장 코너 (L형 코너)</option>
         </select>
       </div>
       <div style="font-size:10px;color:var(--muted);margin:2px 0 4px">3D 모델 선택 시 사진보다 우선 적용됩니다. 사진은 3D 뷰에서 가구 앞면에 표시됩니다</div>
@@ -372,7 +375,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 18;
+const STATE_VERSION = 19;
 
 function defaultState() {
   let id = 1;
@@ -419,6 +422,12 @@ function defaultState() {
         model: 'bunkBed', x: 196, y: 100, rot: 90, placed: true, flipH: true },
       { id: 'f1', name: '아이들 옷장', w: 174, d: 45, h: 120, color: '#e8d8b0',
         model: 'kidsWardrobe', x: 446, y: 150, rot: 90, placed: true, flipV: true },
+      { id: 'samCorner1', name: '샘키즈 옷장 코너', w: 86, d: 86, h: 195, color: '#f0ede0',
+        model: 'samkidsCornerWardrobe', x: 196, y: 0, rot: 0, placed: true },
+      { id: 'samWard1', name: '샘키즈 옷장 콤보', w: 80, d: 62, h: 195, color: '#f0ede0',
+        model: 'samkidsWardrobeCombo', x: 433, y: 324, rot: 90, placed: true },
+      { id: 'samBook1', name: '샘키즈 책장', w: 128, d: 34, h: 114, color: '#f0ede0',
+        model: 'samkidsBookshelf', x: 285, y: 383, rot: 0, placed: true },
       // ── 방2 ──────────────────────────────────────────────────────────
       { id: 'f2', name: '아이들 책장', w: 120, d: 40, h: 120, color: '#a3d9a5',
         model: 'kidsBookshelf', x: 1028, y: 0, rot: 180, placed: true, flipV: true },
@@ -483,6 +492,7 @@ function loadAutosave() {
       const d = defaultState();
       s.rooms = d.rooms;
       // v15→v16: TV 교체, 소파 직선화, TV장 추가; v16→v17: 자코모 소파; v17→v18: B+C 플랫폼 소파
+      // v18→v19: 샘키즈 책장·옷장콤보·코너옷장 추가
       const tv = s.furniture.find(f => f.id === 'tv98');
       if (tv) { tv.name = '삼성 더프레임 85"'; tv.w = 190; tv.h = 110; tv.color = '#1c1e24'; tv.y = 679; }
       const sofa = s.furniture.find(f => f.id === 'sofaL');
@@ -1890,6 +1900,102 @@ function makeModel(f) {
       box(W - uw - 4, 8, 2, white, (uw + 4) / 2 - 2, H - 10, -D / 2 + 1); // 뒤 보강대
       break;
     }
+    case 'samkidsBookshelf': { // 샘키즈 책장 W=128, D=34, H=114: 3열×3단 오픈 선반
+      const white = mat(0xf3f0e8, 0.6), legM = mat(0xd0ccc4, 0.5);
+      const pT = 2, footH = 4;
+      const innerH = H - footH;
+      // 뒤판 (back) + 측판 + 상하판
+      box(W, innerH, 1.5, white, 0, footH + innerH / 2, -D / 2 + 0.75);
+      box(pT, innerH, D, white, -(W - pT) / 2, footH + innerH / 2, 0);
+      box(pT, innerH, D, white,  (W - pT) / 2, footH + innerH / 2, 0);
+      box(W, pT, D, white, 0, footH + innerH - pT / 2, 0);
+      box(W, pT, D, white, 0, footH + pT / 2, 0);
+      // 세로 칸막이 2개 (3열 균등)
+      const colW = (W - 4 * pT) / 3;
+      for (let i = 1; i <= 2; i++) {
+        const xp = -W / 2 + pT + colW * i + pT * (i - 0.5);
+        box(pT, innerH - 2 * pT, D, white, xp, footH + pT + (innerH - 2 * pT) / 2, 0);
+      }
+      // 가로 선반 2개 (3단)
+      const rowH = (innerH - 2 * pT) / 3;
+      for (let i = 1; i <= 2; i++)
+        box(W - 2 * pT, pT, D, white, 0, footH + pT + rowH * i, 0);
+      // 발 4개
+      for (const [fx, fz] of [[-W/2+6, -D/2+4], [W/2-6, -D/2+4], [-W/2+6, D/2-4], [W/2-6, D/2-4]])
+        box(5, footH, 5, legM, fx, footH / 2, fz);
+      // 책 채우기
+      for (let c = 0; c < 3; c++) {
+        const cellX = -W / 2 + pT + colW / 2 + c * (colW + pT);
+        for (let r = 0; r < 3; r++)
+          fillBooks(cellX, footH + pT + rowH * r + pT / 2, colW - 2, rowH - pT * 1.5, D - 10, c * 3 + r + 1);
+      }
+      break;
+    }
+    case 'samkidsWardrobeCombo': { // 샘키즈 옷장 콤보 W=80, D=62, H=195: 좌(서랍+도어)+우(키도어)
+      const body = mat(0xf3f0e8, 0.65), door = mat(0xfaf8f3, 0.55), hdl = mat(0xb8b5af, 0.25);
+      const pT = 1.8, lW = 50; // 좌측 섹션 폭 50cm
+      const fz = D / 2 + 1, dT = 1.6;
+      // 케이스 패널
+      box(pT, H, D, body, -W / 2 + pT / 2, H / 2, 0);           // 좌측판
+      box(pT, H, D, body,  W / 2 - pT / 2, H / 2, 0);           // 우측판
+      box(pT, H, D, body, -W / 2 + lW + pT / 2, H / 2, 0);      // 중간 세로 칸막이
+      box(W, pT, D, body, 0, H - pT / 2, 0);                     // 상판
+      box(W, pT, D, body, 0, pT / 2, 0);                         // 하판
+      box(W, H, pT, body, 0, H / 2, -D / 2 + pT / 2);            // 뒤판
+      // 좌측 상단 도어 2짝 (h=120)
+      const uDH = 120, dDW = (lW - 3 * pT) / 2;
+      box(dDW, uDH, dT, door, -W / 2 + pT + dDW / 2, H - uDH / 2, fz);
+      box(dDW, uDH, dT, door, -W / 2 + 2 * pT + dDW * 1.5, H - uDH / 2, fz);
+      box(2.5, 10, 2, hdl, -W / 2 + 2 * pT + dDW - 2, H - uDH / 2, fz + dT / 2 + 1);
+      // 좌측 하단 서랍 3개 (아래부터 25+25+22)
+      const drawers = [25, 25, 22];
+      let dy = pT;
+      for (const dh of drawers) {
+        box(lW - 2 * pT - 3, dh - 3, dT, door, -W / 2 + pT + (lW - 2 * pT) / 2, dy + dh / 2 - 1.5, fz);
+        box(8, 2.5, 1.5, hdl, -W / 2 + pT + (lW - 2 * pT) / 2, dy + dh / 2 - 1.5, fz + dT / 2 + 0.8);
+        dy += dh;
+      }
+      // 우측 키도어
+      const rW = W - lW - 3 * pT;
+      box(rW - 2, H - 3, dT, door, W / 2 - pT - rW / 2 + 1, H / 2, fz);
+      box(2.5, 10, 2, hdl, W / 2 - pT - 3, H / 2, fz + dT / 2 + 1);
+      break;
+    }
+    case 'samkidsCornerWardrobe': { // 샘키즈 옷장 코너 W=86, D=86, H=195: NW 코너형 L자
+      const body = mat(0xf3f0e8, 0.65), door = mat(0xfaf8f3, 0.55), rod = mat(0xb8b5af, 0.2);
+      const pT = 2, armW = 50, armD = D - armW; // armD=36
+      const eP = -W / 2 + armW; // 서쪽 팔 동쪽 분리판 x = 7
+      const sP = -D / 2 + armW; // 북쪽 팔 남쪽 분리판 z = 7
+      const wCx = -W / 2 + armW / 2, wCz = D / 2 - armD / 2; // 서쪽 팔 중심(-18, 25)
+      const nCx = W / 2 - armD / 2, nCz = -D / 2 + armW / 2; // 북쪽 팔 중심(25, -18)
+      // 코너 블록
+      box(armW, H, armW, body, wCx, H / 2, nCz);
+      // 서쪽 팔 패널 (south portion)
+      box(pT, H, armD, body, -W / 2 + pT / 2, H / 2, wCz);     // 서쪽 뒷판(벽)
+      box(pT, H, armD, body, eP - pT / 2, H / 2, wCz);          // 동쪽 분리판
+      box(armW, H, pT, body, wCx, H / 2, D / 2 - pT / 2);       // 남쪽 앞판
+      box(armW, pT, armD, body, wCx, H - pT / 2, wCz);           // 상판
+      box(armW, pT, armD, body, wCx, pT / 2, wCz);               // 하판
+      // 북쪽 팔 패널 (east portion)
+      box(armD, H, pT, body, nCx, H / 2, -D / 2 + pT / 2);      // 북쪽 뒷판(벽)
+      box(armD, H, pT, body, nCx, H / 2, sP - pT / 2);           // 남쪽 분리판
+      box(pT, H, armW, body, W / 2 - pT / 2, H / 2, nCz);        // 동쪽 앞판
+      box(armD, pT, armW, body, nCx, H - pT / 2, nCz);           // 상판
+      box(armD, pT, armW, body, nCx, pT / 2, nCz);               // 하판
+      // 도어 (각 팔 실내 방향)
+      const dT = 1.5;
+      box(dT, H - 4, armD - 4, door, eP + dT / 2, H / 2, wCz);   // 서쪽 팔 도어
+      box(2.5, 10, 1.5, rod, eP + dT + 1, H / 2, wCz);
+      box(armD - 4, H - 4, dT, door, nCx, H / 2, sP + dT / 2);   // 북쪽 팔 도어
+      box(1.5, 10, 2.5, rod, nCx, H / 2, sP + dT + 1);
+      // 내부 봉 + 선반
+      const rodH = H * 0.75;
+      cyl(1.5, armD - 6, rod, wCx, rodH, wCz);                    // 서쪽 팔 봉(z방향)
+      box(armW - 4, pT, armD - 6, body, wCx, H * 0.48, wCz);      // 서쪽 팔 선반
+      box(armD - 6, 3, 3, rod, nCx, rodH, nCz);                   // 북쪽 팔 봉(x방향)
+      box(armD - 6, pT, armW - 4, body, nCx, H * 0.48, nCz);      // 북쪽 팔 선반
+      break;
+    }
     default: return null;
   }
   return g;
@@ -2226,7 +2332,12 @@ async function hashToState(hash) {
     try {
       const imported = await hashToState(hash);
       if (imported && Array.isArray(imported.furniture)) {
-        state = normalizeState(imported);
+        const ns = normalizeState(imported);
+        // 링크 로드 시에도 새 가구 자동 추가 (version 마이그레이션)
+        const d2 = defaultState();
+        const ids2 = new Set(ns.furniture.map(f => f.id));
+        ns.furniture.push(...d2.furniture.filter(f => !ids2.has(f.id)));
+        state = ns;
         history.replaceState(null, '', location.pathname);
         document.getElementById('linkBanner').style.display = 'flex';
       }
