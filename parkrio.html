@@ -264,6 +264,23 @@
     <summary>방 목록 / 편집</summary>
     <div class="body">
       <div id="roomList"></div>
+      <div id="roomMemoPanel" style="display:none;padding:6px 0 2px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+          <span id="roomMemoTitle" style="font-size:12px;font-weight:600;color:var(--accent)"></span>
+          <button id="roomMemoCloseBtn" class="small" style="line-height:1">✕</button>
+        </div>
+        <textarea id="roomMemoText" placeholder="메모 (재료, 치수, 계획 등...)"
+          style="width:100%;box-sizing:border-box;height:72px;resize:vertical;font-size:12px;
+          background:var(--panel2);border:1px solid var(--border);color:var(--text);
+          border-radius:4px;padding:6px;font-family:inherit;line-height:1.4"></textarea>
+        <div id="roomPhotosGrid" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;"></div>
+        <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:11px;
+          color:var(--muted);margin-top:6px;padding:4px 8px;border:1px dashed var(--border);
+          border-radius:4px;user-select:none">
+          <input type="file" accept="image/*" multiple id="roomPhotoInput" style="display:none">
+          📷 사진 추가 (최대 3장)
+        </label>
+      </div>
       <hr style="border-color: var(--border); border-style: solid; border-width: 1px 0 0;">
       <div class="row"><label>이름</label><input type="text" id="rName" placeholder="예: 거실"></div>
       <div class="row"><label>위치X</label><input type="number" id="rX"><label>위치Y</label><input type="number" id="rY"></div>
@@ -375,7 +392,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 19;
+const STATE_VERSION = 20;
 
 function defaultState() {
   let id = 1;
@@ -383,7 +400,7 @@ function defaultState() {
     ({ id: 'f' + id++, name, w, d, h, color, ...(model ? { model } : {}),
        x: 0, y: 0, rot: 0, placed: false });
   // 실측 평면도 (발코니 확장 반영, 단위 cm). zone은 배치 불가 참고용 공간.
-  return {
+  const s = {
     version: STATE_VERSION,
     rooms: [
       // doors: wall(n/s/e/w) 기준 off(벽 시작에서 개구부까지), w(문폭), hinge(start/end)
@@ -463,12 +480,15 @@ function defaultState() {
       F('장난감 정리함(1단)', 86, 30, 40, '#f2b134', 'toyBox'),
     ],
   };
+  for (const r of s.rooms) { if (!r.memo) r.memo = ''; if (!Array.isArray(r.photos)) r.photos = []; }
+  return s;
 }
 
 let state = loadAutosave() || defaultState();
 let selectedId = null;        // 선택된 가구 id
 let editingFurnId = null;     // 폼에서 편집 중인 가구 id
 let editingRoomId = null;     // 폼에서 편집 중인 방 id
+let memoRoomId = null;        // 메모 패널에서 편집 중인 방 id
 
 /* ================= 저장 ================= */
 
@@ -492,7 +512,7 @@ function loadAutosave() {
       const d = defaultState();
       s.rooms = d.rooms;
       // v15→v16: TV 교체, 소파 직선화, TV장 추가; v16→v17: 자코모 소파; v17→v18: B+C 플랫폼 소파
-      // v18→v19: 샘키즈 책장·옷장콤보·코너옷장 추가
+      // v18→v19: 샘키즈 책장·옷장콤보·코너옷장 추가; v19→v20: 방 메모·사진 필드 추가
       const tv = s.furniture.find(f => f.id === 'tv98');
       if (tv) { tv.name = '삼성 더프레임 85"'; tv.w = 190; tv.h = 110; tv.color = '#1c1e24'; tv.y = 679; }
       const sofa = s.furniture.find(f => f.id === 'sofaL');
@@ -509,7 +529,11 @@ function loadAutosave() {
 // 외부 JSON/구버전 세션 데이터 보정
 function normalizeState(s) {
   s.version = STATE_VERSION;
-  for (const r of s.rooms) if (r.type !== 'zone') r.type = 'room';
+  for (const r of s.rooms) {
+    if (r.type !== 'zone') r.type = 'room';
+    if (!r.memo) r.memo = '';
+    if (!Array.isArray(r.photos)) r.photos = [];
+  }
   return s;
 }
 
@@ -1329,9 +1353,14 @@ function renderRoomList() {
         if (!roomAt(f.x + fp.w / 2, f.y + fp.d / 2)) f.placed = false;
       }
       if (editingRoomId === r.id) resetRoomForm();
+      if (memoRoomId === r.id) closeRoomMemo();
       commit();
     });
-    item.append(editBtn, delBtn);
+    const memoBtn = document.createElement('button');
+    memoBtn.className = 'small'; memoBtn.textContent = '📝';
+    memoBtn.title = '메모 & 사진';
+    memoBtn.addEventListener('click', () => openRoomMemo(r.id));
+    item.append(memoBtn, editBtn, delBtn);
     box.appendChild(item);
   }
 }
@@ -1380,6 +1409,71 @@ document.getElementById('rSaveBtn').addEventListener('click', () => {
   commit();
 });
 document.getElementById('rCancelBtn').addEventListener('click', resetRoomForm);
+
+/* ================= 방 메모 & 사진 ================= */
+
+function openRoomMemo(id) {
+  const r = state.rooms.find(rr => rr.id === id);
+  if (!r) return;
+  memoRoomId = id;
+  document.getElementById('roomMemoPanel').style.display = '';
+  document.getElementById('roomMemoTitle').textContent = r.name + ' 메모 & 사진';
+  document.getElementById('roomMemoText').value = r.memo || '';
+  renderRoomPhotos();
+  // 패널이 보이도록 details 열기
+  document.getElementById('roomMemoPanel').closest('details').open = true;
+}
+
+function closeRoomMemo() {
+  memoRoomId = null;
+  document.getElementById('roomMemoPanel').style.display = 'none';
+}
+
+function renderRoomPhotos() {
+  const r = memoRoomId ? state.rooms.find(rr => rr.id === memoRoomId) : null;
+  const grid = document.getElementById('roomPhotosGrid');
+  grid.innerHTML = '';
+  if (!r) return;
+  for (let i = 0; i < (r.photos || []).length; i++) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:72px;height:72px';
+    const img = document.createElement('img');
+    img.src = r.photos[i];
+    img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;display:block;cursor:pointer';
+    img.title = '클릭: 크게 보기';
+    img.addEventListener('click', () => { const w = window.open(); w.document.write(`<img src="${r.photos[i]}" style="max-width:100%">`); });
+    const del = document.createElement('button');
+    del.className = 'small danger';
+    del.textContent = '✕';
+    del.style.cssText = 'position:absolute;top:2px;right:2px;padding:1px 5px;font-size:10px;min-width:0;line-height:1.4';
+    const idx = i;
+    del.addEventListener('click', () => { r.photos.splice(idx, 1); renderRoomPhotos(); scheduleSave(); });
+    wrap.append(img, del);
+    grid.appendChild(wrap);
+  }
+}
+
+document.getElementById('roomMemoCloseBtn').addEventListener('click', closeRoomMemo);
+
+document.getElementById('roomMemoText').addEventListener('input', () => {
+  if (!memoRoomId) return;
+  const r = state.rooms.find(rr => rr.id === memoRoomId);
+  if (r) { r.memo = document.getElementById('roomMemoText').value; scheduleSave(); }
+});
+
+document.getElementById('roomPhotoInput').addEventListener('change', async (e) => {
+  const r = memoRoomId ? state.rooms.find(rr => rr.id === memoRoomId) : null;
+  if (!r) return;
+  if (!Array.isArray(r.photos)) r.photos = [];
+  for (const file of e.target.files) {
+    if (r.photos.length >= 3) break;
+    const dataUrl = await downscaleImage(file, 320);
+    r.photos.push(dataUrl);
+  }
+  renderRoomPhotos();
+  scheduleSave();
+  e.target.value = '';
+});
 
 /* ================= 세션 ================= */
 
