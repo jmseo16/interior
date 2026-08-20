@@ -392,7 +392,7 @@ const SESSIONS_KEY = 'floorplan-sessions';
 
 /* ================= 상태 ================= */
 
-const STATE_VERSION = 21;
+const STATE_VERSION = 22;
 
 function defaultState() {
   let id = 1;
@@ -436,15 +436,17 @@ function defaultState() {
     furniture: [
       // ── 방1 ──────────────────────────────────────────────────────────
       { id: 'f4', name: '2층침대', w: 206, d: 118, h: 81, color: '#7fb3ff',
-        model: 'bunkBed', x: 196, y: 86, rot: 90, placed: true, flipH: true },
+        model: 'bunkBed', x: 196, y: 100, rot: 90, placed: true, flipH: true },
       { id: 'f1', name: '아이들 옷장', w: 174, d: 45, h: 120, color: '#e8d8b0',
-        model: 'kidsWardrobe', x: 396, y: 150, rot: 90, placed: true, flipV: true },
-      { id: 'samCorner1', name: '샘키즈 옷장 코너', w: 86, d: 86, h: 195, color: '#f0ede0',
-        model: 'samkidsCornerWardrobe', x: 196, y: 0, rot: 0, placed: true },
+        model: 'kidsWardrobe', x: 246, y: 0, rot: 180, placed: true, flipV: true },
       { id: 'samWard1', name: '샘키즈 옷장 콤보', w: 80, d: 62, h: 195, color: '#f0ede0',
-        model: 'samkidsWardrobeCombo', x: 361, y: 350, rot: 0, placed: true },
+        model: 'samkidsWardrobeCombo', x: 379, y: 170, rot: 90, placed: true },
+      { id: 'samWard2', name: '샘키즈 옷장 콤보', w: 80, d: 62, h: 195, color: '#f0ede0',
+        model: 'samkidsWardrobeCombo', x: 379, y: 250, rot: 90, placed: true },
+      { id: 'samCorner1', name: '샘키즈 옷장 코너', w: 86, d: 86, h: 195, color: '#f0ede0',
+        model: 'samkidsCornerWardrobe', x: 355, y: 331, rot: 180, placed: true },
       { id: 'samBook1', name: '샘키즈 책장', w: 128, d: 34, h: 114, color: '#f0ede0',
-        model: 'samkidsBookshelf', x: 313, y: 416, rot: 0, placed: true },
+        model: 'samkidsBookshelf', x: 196, y: 383, rot: 0, placed: true },
       // ── 방2 ──────────────────────────────────────────────────────────
       { id: 'f2', name: '아이들 책장', w: 120, d: 40, h: 120, color: '#a3d9a5',
         model: 'kidsBookshelf', x: 1028, y: 0, rot: 180, placed: true, flipV: true },
@@ -520,15 +522,17 @@ function loadAutosave() {
       s.furniture = s.furniture.filter(f => f.name !== '소파 테이블');
       const ids = new Set(s.furniture.map(f => f.id));
       s.furniture.push(...d.furniture.filter(f => !ids.has(f.id)));
-      // v20→v21: 방1 실측 245×450cm (기둥150cm 포함) — 가구 재배치
+      // v20→v21: 방1 실측 245×450cm; v21→v22: 방1 가구 사용자 배치 반영
       const _f4 = s.furniture.find(f => f.id === 'f4');
-      if (_f4 && _f4.placed) { _f4.y = 86; }
+      if (_f4) { _f4.x = 196; _f4.y = 100; _f4.rot = 90; _f4.placed = true; _f4.flipH = true; delete _f4.flipV; }
       const _f1 = s.furniture.find(f => f.id === 'f1');
-      if (_f1 && _f1.placed) { _f1.x = 396; _f1.y = 150; }
+      if (_f1) { _f1.x = 246; _f1.y = 0; _f1.rot = 180; _f1.placed = true; _f1.flipV = true; }
       const _sW = s.furniture.find(f => f.id === 'samWard1');
-      if (_sW && _sW.placed) { _sW.x = 361; _sW.y = 350; _sW.rot = 0; }
+      if (_sW) { _sW.x = 379; _sW.y = 170; _sW.rot = 90; _sW.placed = true; }
+      const _sC = s.furniture.find(f => f.id === 'samCorner1');
+      if (_sC) { _sC.x = 355; _sC.y = 331; _sC.rot = 180; _sC.placed = true; }
       const _sB = s.furniture.find(f => f.id === 'samBook1');
-      if (_sB && _sB.placed) { _sB.x = 313; _sB.y = 416; }
+      if (_sB) { _sB.x = 196; _sB.y = 383; _sB.rot = 0; _sB.placed = true; }
       s.version = STATE_VERSION;
     }
     return s;
